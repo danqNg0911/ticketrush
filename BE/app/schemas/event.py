@@ -1,0 +1,114 @@
+"""Event and seat related schemas."""
+
+from datetime import datetime
+from decimal import Decimal
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from app.models.enums import EventStatus, SeatStatus
+
+
+class SeatZoneCreate(BaseModel):
+    """Seat zone matrix config payload for event creation."""
+
+    code: str = Field(min_length=1, max_length=30)
+    name: str = Field(min_length=1, max_length=100)
+    row_count: int = Field(ge=1, le=40)
+    seats_per_row: int = Field(ge=1, le=60)
+    price: Decimal = Field(gt=0)
+    color: str = Field(default="#024ddf", max_length=20)
+
+
+class EventCreateRequest(BaseModel):
+    """Admin payload to create a brand-new event and seats."""
+
+    title: str = Field(min_length=3, max_length=255)
+    description: str = Field(min_length=10)
+    category: str = Field(min_length=2, max_length=80)
+    venue: str = Field(min_length=3, max_length=200)
+    start_at: datetime
+    end_at: datetime
+    cover_image_url: str = ""
+    status: EventStatus = EventStatus.LIVE
+    hold_minutes: int = Field(default=10, ge=1, le=60)
+    queue_enabled: bool = True
+    queue_release_batch: int = Field(default=50, ge=1, le=500)
+    max_active_queue_tokens: int = Field(default=200, ge=1, le=5000)
+    zones: list[SeatZoneCreate] = Field(min_length=1)
+
+
+class EventCardResponse(BaseModel):
+    """Short event shape for listings."""
+
+    id: int
+    slug: str
+    title: str
+    description: str
+    category: str
+    venue: str
+    start_at: datetime
+    end_at: datetime
+    cover_image_url: str
+    status: EventStatus
+    queue_enabled: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class SeatZoneResponse(BaseModel):
+    """Read-only zone payload."""
+
+    id: int
+    code: str
+    name: str
+    row_count: int
+    seats_per_row: int
+    price: Decimal
+    color: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class EventDetailResponse(EventCardResponse):
+    """Detailed event payload used for booking screen."""
+
+    hold_minutes: int
+    queue_release_batch: int
+    max_active_queue_tokens: int
+    zones: list[SeatZoneResponse]
+
+
+class SeatResponse(BaseModel):
+    """Serializable seat object for matrix rendering."""
+
+    id: int
+    zone_id: int
+    row_index: int
+    row_label: str
+    seat_number: int
+    seat_label: str
+    price: Decimal
+    status: SeatStatus
+    lock_expires_at: datetime | None = None
+    is_locked_by_me: bool = False
+
+
+class SeatMatrixResponse(BaseModel):
+    """Seats and zones returned to seat matrix screen."""
+
+    event_id: int
+    event_slug: str
+    queue_enabled: bool
+    zones: list[SeatZoneResponse]
+    seats: list[SeatResponse]
+
+
+class EventOccupancyResponse(BaseModel):
+    """Per-event occupancy totals for dashboard."""
+
+    event_id: int
+    event_title: str
+    total_seats: int
+    sold_seats: int
+    locked_seats: int
+    occupancy_rate: float
