@@ -1,5 +1,5 @@
 import dayjs from 'dayjs'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { type CSSProperties, useCallback, useEffect, useMemo, useState } from 'react'
 import { useLocation, useNavigate, useParams } from 'react-router-dom'
 
 import { SeatLegend } from '../components/SeatLegend'
@@ -16,16 +16,45 @@ interface SeatUpdatePayload {
   locked_by_user_id: number | null
 }
 
+const softSeatPalette = ['#ffd9de', '#fff0c8', '#dff7d8', '#e7dcff', '#d8f3ff', '#ffe1ef'] as const
+
+function softenHexColor(hexColor: string, amount = 0.35): string {
+  const clean = hexColor.replace('#', '')
+  if (![3, 6].includes(clean.length)) return hexColor
+
+  const expanded = clean.length === 3 ? clean.split('').map((char) => `${char}${char}`).join('') : clean
+  const red = Number.parseInt(expanded.slice(0, 2), 16)
+  const green = Number.parseInt(expanded.slice(2, 4), 16)
+  const blue = Number.parseInt(expanded.slice(4, 6), 16)
+
+  const mix = (channel: number) => Math.round(channel + (255 - channel) * amount)
+  return `#${mix(red).toString(16).padStart(2, '0')}${mix(green).toString(16).padStart(2, '0')}${mix(blue).toString(16).padStart(2, '0')}`
+}
+
+function getReadableTextColor(hexColor: string): string {
+  const clean = hexColor.replace('#', '')
+  if (![3, 6].includes(clean.length)) return '#002462'
+
+  const expanded = clean.length === 3 ? clean.split('').map((char) => `${char}${char}`).join('') : clean
+  const red = Number.parseInt(expanded.slice(0, 2), 16)
+  const green = Number.parseInt(expanded.slice(2, 4), 16)
+  const blue = Number.parseInt(expanded.slice(4, 6), 16)
+
+  const luminance = (0.2126 * red + 0.7152 * green + 0.0722 * blue) / 255
+  return luminance > 0.62 ? '#0f172a' : '#ffffff'
+}
+
 export function SeatBookingPage() {
   const { eventKey = '' } = useParams()
   const location = useLocation()
   const navigate = useNavigate()
-  const { user, token } = useAuth()
+  const { user, token, isAuthenticated } = useAuth()
 
   const [event, setEvent] = useState<EventDetail | null>(null)
   const [seats, setSeats] = useState<Seat[]>([])
   const [loading, setLoading] = useState(true)
   const [busySeatId, setBusySeatId] = useState<number | null>(null)
+  const [guestPreviewSeatIds, setGuestPreviewSeatIds] = useState<number[]>([])
   const [error, setError] = useState<string | null>(null)
   const [checkoutData, setCheckoutData] = useState<CheckoutResponse | null>(null)
   const [nowTick, setNowTick] = useState(() => Date.now())
@@ -55,8 +84,9 @@ export function SeatBookingPage() {
 
       setEvent(eventResponse)
       setSeats(seatMatrixResponse.seats)
+      setGuestPreviewSeatIds([])
 
-      if (eventResponse.queue_enabled && !queueToken) {
+      if (isAuthenticated && eventResponse.queue_enabled && !queueToken) {
         navigate(`/events/${eventKey}/queue`, { replace: true })
         return
       }
@@ -65,7 +95,7 @@ export function SeatBookingPage() {
     } finally {
       setLoading(false)
     }
-  }, [eventKey, navigate, queueToken])
+  }, [eventKey, isAuthenticated, navigate, queueToken])
 
   useEffect(() => {
     void fetchAll()
@@ -115,9 +145,14 @@ export function SeatBookingPage() {
   })
 
   const selectedSeats = useMemo(() => seats.filter((seat) => seat.is_locked_by_me && seat.status === 'locked'), [seats])
+  const guestPreviewSeats = useMemo(
+    () => seats.filter((seat) => guestPreviewSeatIds.includes(seat.id) && seat.status !== 'sold'),
+    [guestPreviewSeatIds, seats],
+  )
+  const displaySeats = isAuthenticated ? selectedSeats : guestPreviewSeats
   const totalPrice = useMemo(
-    () => selectedSeats.reduce((sum, seat) => sum + Number(seat.price), 0),
-    [selectedSeats],
+    () => displaySeats.reduce((sum, seat) => sum + Number(seat.price), 0),
+    [displaySeats],
   )
 
   const holdDeadline = useMemo(() => {
@@ -140,6 +175,14 @@ export function SeatBookingPage() {
 
   const handleSeatClick = async (seat: Seat) => {
     if (!event || busySeatId) return
+
+    if (!isAuthenticated) {
+      if (seat.status === 'sold') return
+      setGuestPreviewSeatIds((previousIds) =>
+        previousIds.includes(seat.id) ? previousIds.filter((id) => id !== seat.id) : [...previousIds, seat.id],
+      )
+      return
+    }
 
     if (seat.status === 'sold') return
 
@@ -193,6 +236,11 @@ export function SeatBookingPage() {
   const handleCheckout = async () => {
     if (!event) return
 
+    if (!isAuthenticated) {
+      navigate('/login')
+      return
+    }
+
     try {
       const checkout = await bookingApi.checkout(event.id, queueToken)
       setCheckoutData(checkout)
@@ -204,12 +252,22 @@ export function SeatBookingPage() {
   }
 
   const zoneMap = useMemo(() => {
-    const map = new Map<number, string>()
-    event?.zones.forEach((zone) => {
-      map.set(zone.id, zone.name)
+    const map = new Map<number, { name: string; color: string }>()
+    event?.zones.forEach((zone, index) => {
+      const normalized = zone.color.trim().toLowerCase()
+      const color = ['#024ddf', '#3569f9', '#799dd6', '#b6c4ff'].includes(normalized)
+        ? softSeatPalette[index % softSeatPalette.length]
+        : softenHexColor(zone.color)
+
+      map.set(zone.id, { name: zone.name, color })
     })
     return map
   }, [event])
+
+  const legendZones = useMemo(
+    () => event?.zones.map((zone) => ({ ...zone, color: zoneMap.get(zone.id)?.color ?? zone.color })) ?? [],
+    [event, zoneMap],
+  )
 
   return (
     <main className="page page-seat-booking app-container">
@@ -238,15 +296,26 @@ export function SeatBookingPage() {
           <section className="seat-layout-grid">
             <article className="seat-map-card">
               <div className="stage-pill">MAIN STAGE</div>
-              <SeatLegend />
+              <SeatLegend zones={legendZones} />
 
               <div className="seat-grid">
                 {seats.map((seat) => {
+                  const zoneMeta = zoneMap.get(seat.zone_id)
+                  const availableStyle: CSSProperties | undefined =
+                    seat.status === 'available' && zoneMeta
+                      ? ({
+                          '--seat-zone-color': zoneMeta.color,
+                          '--seat-zone-text': getReadableTextColor(zoneMeta.color),
+                        } as CSSProperties)
+                      : undefined
+
                   const className = [
                     'seat-cell',
+                    seat.status === 'available' ? 'seat-cell--available' : '',
                     seat.status === 'sold' ? 'seat-cell--sold' : '',
                     seat.status === 'locked' && seat.is_locked_by_me ? 'seat-cell--mine' : '',
                     seat.status === 'locked' && !seat.is_locked_by_me ? 'seat-cell--locked' : '',
+                    !isAuthenticated && guestPreviewSeatIds.includes(seat.id) ? 'seat-cell--preview' : '',
                   ]
                     .filter(Boolean)
                     .join(' ')
@@ -256,7 +325,8 @@ export function SeatBookingPage() {
                       key={seat.id}
                       type="button"
                       className={className}
-                      title={`${seat.seat_label} • ${zoneMap.get(seat.zone_id)} • $${seat.price}`}
+                      style={availableStyle}
+                      title={`${seat.seat_label} • ${zoneMeta?.name ?? 'Unknown Zone'} • $${seat.price}`}
                       onClick={() => void handleSeatClick(seat)}
                       disabled={seat.status === 'sold' || busySeatId === seat.id}
                     >
@@ -270,16 +340,16 @@ export function SeatBookingPage() {
 
             <aside className="seat-summary-card">
               <h2>Selected Seats</h2>
-              <p>{selectedSeats.length} seats locked</p>
+              <p>{isAuthenticated ? `${selectedSeats.length} seats locked` : `${guestPreviewSeats.length} seats selected (preview)`}</p>
 
               <ul>
-                {selectedSeats.map((seat) => (
+                {displaySeats.map((seat) => (
                   <li key={seat.id}>
                     <span>{seat.seat_label}</span>
                     <span>${Number(seat.price).toFixed(2)}</span>
                   </li>
                 ))}
-                {selectedSeats.length === 0 && <li>No seats selected yet.</li>}
+                {displaySeats.length === 0 && <li>No seats selected yet.</li>}
               </ul>
 
               <div className="seat-summary__total">
@@ -287,7 +357,7 @@ export function SeatBookingPage() {
                 <strong>${totalPrice.toFixed(2)}</strong>
               </div>
 
-              <button type="button" className="btn btn-primary" disabled={selectedSeats.length === 0} onClick={handleCheckout}>
+              <button type="button" className="btn btn-primary" disabled={displaySeats.length === 0} onClick={handleCheckout}>
                 Confirm Checkout
               </button>
             </aside>

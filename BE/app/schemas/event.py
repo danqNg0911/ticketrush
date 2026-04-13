@@ -37,6 +37,23 @@ class EventCreateRequest(BaseModel):
     zones: list[SeatZoneCreate] = Field(min_length=1)
 
 
+class EventUpdateRequest(BaseModel):
+    """Admin payload to update released event metadata/settings."""
+
+    title: str | None = Field(default=None, min_length=3, max_length=255)
+    description: str | None = Field(default=None, min_length=10)
+    category: str | None = Field(default=None, min_length=2, max_length=80)
+    venue: str | None = Field(default=None, min_length=3, max_length=200)
+    start_at: datetime | None = None
+    end_at: datetime | None = None
+    cover_image_url: str | None = None
+    status: EventStatus | None = None
+    hold_minutes: int | None = Field(default=None, ge=1, le=60)
+    queue_enabled: bool | None = None
+    queue_release_batch: int | None = Field(default=None, ge=1, le=500)
+    max_active_queue_tokens: int | None = Field(default=None, ge=1, le=5000)
+
+
 class EventCardResponse(BaseModel):
     """Short event shape for listings."""
 

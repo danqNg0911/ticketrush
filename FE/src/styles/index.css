@@ -109,6 +109,22 @@ button {
   font-family: 'Manrope', sans-serif;
 }
 
+.section-head--hero {
+  background:
+    radial-gradient(circle at 0% 0%, rgb(2 77 223 / 16%), transparent 45%),
+    radial-gradient(circle at 100% 100%, rgb(248 216 255 / 70%), transparent 50%),
+    #fff;
+  border-radius: 24px;
+  padding: 1.1rem 1.2rem;
+  border: 1px solid rgb(2 77 223 / 12%);
+  box-shadow: var(--shadow-soft);
+}
+
+.ticket-hero-head h1,
+.admin-hero-head h1 {
+  letter-spacing: -0.03em;
+}
+
 .top-nav {
   position: fixed;
   top: 0;
@@ -191,6 +207,15 @@ button {
 .btn-ghost {
   background: var(--surface-mid);
   color: var(--on-surface);
+}
+
+.btn-soft-danger {
+  background: #ffe5e2;
+  color: #8f1d1d;
+}
+
+.btn-soft-danger:hover {
+  background: #ffd7d2;
 }
 
 .chip {
@@ -283,6 +308,40 @@ button {
 
 .hero__search input:focus {
   outline: none;
+}
+
+.event-filters-panel {
+  display: grid;
+  gap: 0.9rem;
+  margin-bottom: 1.25rem;
+}
+
+.event-filter-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+}
+
+.event-filter-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr)) auto auto;
+  gap: 0.6rem;
+  align-items: end;
+}
+
+.event-filter-form label {
+  display: grid;
+  gap: 0.3rem;
+  font-size: 0.82rem;
+  color: var(--on-surface-muted);
+  font-family: 'Manrope', sans-serif;
+}
+
+.event-filter-form input {
+  border: none;
+  background: var(--surface-high);
+  border-radius: 12px;
+  padding: 0.65rem;
 }
 
 .feature-event {
@@ -568,6 +627,7 @@ button {
   height: 0.8rem;
   border-radius: 999px;
   display: inline-block;
+  border: 1px solid rgb(0 0 0 / 10%);
 }
 
 .seat-dot--available {
@@ -597,12 +657,15 @@ button {
 .seat-cell {
   border: none;
   border-radius: 8px;
-  background: #dce1ff;
-  color: #002462;
   font-size: 0.68rem;
   min-height: 2rem;
   font-weight: 700;
   font-family: 'Manrope', sans-serif;
+}
+
+.seat-cell--available {
+  background: var(--seat-zone-color, #dce1ff);
+  color: var(--seat-zone-text, #002462);
 }
 
 .seat-cell--locked {
@@ -619,6 +682,11 @@ button {
   background: #1f2027;
   color: #fff;
   cursor: not-allowed;
+}
+
+.seat-cell--preview {
+  outline: 2px dashed rgb(0 30 64 / 35%);
+  outline-offset: 1px;
 }
 
 .seat-summary-card {
@@ -706,6 +774,30 @@ button {
 .ticket-item span {
   color: var(--on-surface-muted);
   font-size: 0.85rem;
+}
+
+.ticket-item__code {
+  display: inline-flex;
+  width: fit-content;
+  padding: 0.25rem 0.5rem;
+  border-radius: 999px;
+  background: var(--surface-mid);
+  font-weight: 700;
+  font-size: 0.75rem;
+}
+
+.ticket-filter-bar {
+  display: grid;
+  grid-template-columns: 1.4fr 1fr 1fr auto auto;
+  gap: 0.6rem;
+  align-items: center;
+}
+
+.ticket-filter-bar input {
+  border: none;
+  background: var(--surface-high);
+  border-radius: 12px;
+  padding: 0.65rem;
 }
 
 .ticket-detail {
@@ -958,6 +1050,33 @@ tbody tr:nth-child(odd) {
   gap: 0.65rem;
 }
 
+.admin-upload-box {
+  display: grid;
+  gap: 0.5rem;
+}
+
+.admin-upload-preview {
+  width: min(360px, 100%);
+  border-radius: 12px;
+  object-fit: cover;
+  box-shadow: var(--shadow-soft);
+}
+
+.admin-list-filter {
+  display: grid;
+  grid-template-columns: 1.5fr 1fr 1fr 1fr auto auto;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
+.admin-list-filter input,
+.admin-list-filter select {
+  border: none;
+  background: var(--surface-high);
+  border-radius: 12px;
+  padding: 0.65rem;
+}
+
 .admin-event-list {
   display: grid;
   gap: 0.7rem;
@@ -982,6 +1101,41 @@ tbody tr:nth-child(odd) {
   padding: 0.8rem 0.8rem 0.8rem 0;
   display: grid;
   gap: 0.35rem;
+}
+
+.admin-event-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.admin-event-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+  margin-top: 0.25rem;
+}
+
+.admin-detail-panel {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.admin-detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+}
+
+.admin-detail-head h3 {
+  font-size: 1.05rem;
+}
+
+.admin-stats-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.7rem;
 }
 
 .admin-event-item p {
@@ -1029,6 +1183,9 @@ tbody tr:nth-child(odd) {
   .seat-layout-grid,
   .my-tickets-grid,
   .dashboard-grid,
+  .event-filter-form,
+  .ticket-filter-bar,
+  .admin-list-filter,
   .admin-form__grid,
   .auth-grid,
   .demographic-grid {
@@ -1041,6 +1198,10 @@ tbody tr:nth-child(odd) {
   }
 
   .kpi-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .admin-stats-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
@@ -1066,6 +1227,10 @@ tbody tr:nth-child(odd) {
   }
 
   .kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-stats-grid {
     grid-template-columns: 1fr;
   }
 

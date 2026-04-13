@@ -126,6 +126,8 @@ async def list_live_events(
     session: AsyncSession,
     search: str | None,
     category: str | None,
+    start_from: datetime | None,
+    end_to: datetime | None,
     limit: int = 30,
     offset: int = 0,
 ) -> list[Event]:
@@ -139,6 +141,12 @@ async def list_live_events(
 
     if category:
         stmt = stmt.where(Event.category.ilike(category.strip()))
+
+    if start_from:
+        stmt = stmt.where(Event.start_at >= start_from)
+
+    if end_to:
+        stmt = stmt.where(Event.start_at <= end_to)
 
     stmt = stmt.limit(limit).offset(offset)
 

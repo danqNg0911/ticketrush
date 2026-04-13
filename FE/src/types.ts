@@ -153,6 +153,48 @@ export interface OccupancyItem {
   occupancy_rate: number
 }
 
+export interface AdminEventUpdatePayload {
+  title?: string
+  description?: string
+  category?: string
+  venue?: string
+  start_at?: string
+  end_at?: string
+  cover_image_url?: string
+  status?: EventStatus
+  hold_minutes?: number
+  queue_enabled?: boolean
+  queue_release_batch?: number
+  max_active_queue_tokens?: number
+}
+
+export interface EventZoneStats {
+  zone_id: number
+  zone_code: string
+  zone_name: string
+  color: string
+  total_seats: number
+  sold_seats: number
+  locked_seats: number
+  available_seats: number
+  occupancy_rate: number
+  min_price: number
+  max_price: number
+}
+
+export interface EventDetailStats {
+  event_id: number
+  event_title: string
+  total_seats: number
+  sold_seats: number
+  locked_seats: number
+  available_seats: number
+  occupancy_rate: number
+  tickets_issued: number
+  total_revenue: number
+  zone_stats: EventZoneStats[]
+}
+
 export interface ApiMessage {
   detail: string
 }

@@ -1,9 +1,11 @@
 """TicketRush FastAPI application entrypoint."""
 
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from app.api.router import api_router, ws_router
 from app.core.config import get_settings
@@ -36,6 +38,10 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, debug=settings.debug, lifespan=lifespan)
+
+static_root = Path(__file__).resolve().parent / "static"
+static_root.mkdir(parents=True, exist_ok=True)
+app.mount("/static", StaticFiles(directory=static_root), name="static")
 
 app.add_middleware(
     CORSMiddleware,

@@ -3,11 +3,13 @@ import axios from 'axios'
 import { authStorage } from './storage'
 import type {
   ApiMessage,
+  AdminEventUpdatePayload,
   AudienceDistribution,
   AuthResponse,
   CheckoutResponse,
   DashboardSummary,
   EventCard,
+  EventDetailStats,
   EventDetail,
   LockSeatResponse,
   OccupancyItem,
@@ -55,8 +57,8 @@ export const authApi = {
 }
 
 export const eventApi = {
-  async list(search?: string) {
-    const response = await api.get<EventCard[]>('/events', { params: { search } })
+  async list(params?: { search?: string; category?: string; start_from?: string; end_to?: string }) {
+    const response = await api.get<EventCard[]>('/events', { params })
     return response.data
   },
   async detail(eventKey: string) {
@@ -106,19 +108,41 @@ export const bookingApi = {
     })
     return response.data
   },
-  async myTickets() {
-    const response = await api.get<TicketItem[]>('/bookings/my-tickets')
+  async myTickets(params?: { search?: string; start_from?: string; end_to?: string }) {
+    const response = await api.get<TicketItem[]>('/bookings/my-tickets', { params })
+    return response.data
+  },
+  async cancelTicket(ticketId: number) {
+    const response = await api.delete<ApiMessage>(`/bookings/my-tickets/${ticketId}`)
     return response.data
   },
 }
 
 export const adminApi = {
-  async listEvents() {
-    const response = await api.get<EventCard[]>('/admin/events')
+  async listEvents(params?: { search?: string; category?: string; start_from?: string; end_to?: string }) {
+    const response = await api.get<EventCard[]>('/admin/events', { params })
     return response.data
   },
   async createEvent(payload: unknown) {
     const response = await api.post<EventDetail>('/admin/events', payload)
+    return response.data
+  },
+  async updateEvent(eventKey: string | number, payload: AdminEventUpdatePayload) {
+    const response = await api.patch<EventDetail>(`/admin/events/${eventKey}`, payload)
+    return response.data
+  },
+  async deleteEvent(eventKey: string | number) {
+    const response = await api.delete<ApiMessage>(`/admin/events/${eventKey}`)
+    return response.data
+  },
+  async eventStats(eventKey: string | number) {
+    const response = await api.get<EventDetailStats>(`/admin/events/${eventKey}/stats`)
+    return response.data
+  },
+  async uploadEventImage(file: File) {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await api.post<{ image_url: string }>('/admin/events/upload-image', formData)
     return response.data
   },
   async summary() {

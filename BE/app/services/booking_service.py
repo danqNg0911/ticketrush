@@ -5,7 +5,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.enums import OrderStatus, SeatStatus
@@ -277,7 +277,13 @@ async def checkout_locked_seats(
     )
 
 
-async def fetch_my_tickets(session: AsyncSession, user_id: int) -> list[MyTicketResponse]:
+async def fetch_my_tickets(
+    session: AsyncSession,
+    user_id: int,
+    search: str | None = None,
+    start_from: datetime | None = None,
+    end_to: datetime | None = None,
+) -> list[MyTicketResponse]:
     """Return customer purchased tickets with event and seat details."""
 
     stmt = (
@@ -290,6 +296,17 @@ async def fetch_my_tickets(session: AsyncSession, user_id: int) -> list[MyTicket
         .where(Order.user_id == user_id)
         .order_by(Ticket.issued_at.desc())
     )
+
+    if search:
+        pattern = f"%{search.strip()}%"
+        stmt = stmt.where(or_(Ticket.ticket_code.ilike(pattern), Event.title.ilike(pattern)))
+
+    if start_from:
+        stmt = stmt.where(Event.start_at >= start_from)
+
+    if end_to:
+        stmt = stmt.where(Event.start_at <= end_to)
+
     rows = (await session.execute(stmt)).all()
 
     return [
@@ -311,6 +328,56 @@ async def fetch_my_tickets(session: AsyncSession, user_id: int) -> list[MyTicket
         )
         for ticket, order, event, order_item, seat, zone in rows
     ]
+
+
+async def cancel_ticket(session: AsyncSession, user_id: int, ticket_id: int) -> None:
+    """Delete one owned ticket and release its sold seat back to inventory."""
+
+    row = (
+        await session.execute(
+            select(Ticket, OrderItem, Order, Seat)
+            .join(OrderItem, Ticket.order_item_id == OrderItem.id)
+            .join(Order, OrderItem.order_id == Order.id)
+            .join(Seat, OrderItem.seat_id == Seat.id)
+            .where(Ticket.id == ticket_id, Order.user_id == user_id)
+            .with_for_update()
+        )
+    ).first()
+
+    if not row:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Ticket not found")
+
+    ticket, order_item, order, seat = row
+    changed_seat = {
+        "id": seat.id,
+        "status": SeatStatus.AVAILABLE.value,
+        "lock_expires_at": None,
+        "locked_by_user_id": None,
+    }
+
+    try:
+        seat.status = SeatStatus.AVAILABLE
+        seat.locked_by_user_id = None
+        seat.lock_expires_at = None
+
+        await session.delete(ticket)
+        await session.delete(order_item)
+        await session.flush()
+
+        total_amount = await session.scalar(
+            select(func.coalesce(func.sum(OrderItem.price), 0)).where(OrderItem.order_id == order.id)
+        )
+        updated_total = Decimal(str(total_amount or 0))
+        order.total_amount = updated_total
+        if updated_total <= Decimal("0"):
+            order.status = OrderStatus.CANCELLED
+
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+
+    await seat_ws_manager.broadcast_seat_changes(event_id=seat.event_id, payload=[changed_seat])
 
 
 async def release_expired_locks(session: AsyncSession) -> dict[int, list[dict[str, int | str | None]]]:

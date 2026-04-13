@@ -1,9 +1,11 @@
 """Public event browsing and seat matrix routes."""
 
+from datetime import datetime
+
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.api.deps import get_current_user
+from app.api.deps import get_optional_current_user
 from app.core.db import get_db_session
 from app.models.user import User
 from app.schemas.event import EventCardResponse, EventDetailResponse, SeatMatrixResponse
@@ -16,13 +18,23 @@ router = APIRouter(prefix="/events", tags=["events"])
 async def list_events(
     search: str | None = Query(default=None, max_length=120),
     category: str | None = Query(default=None, max_length=80),
+    start_from: datetime | None = Query(default=None),
+    end_to: datetime | None = Query(default=None),
     limit: int = Query(default=30, ge=1, le=100),
     offset: int = Query(default=0, ge=0),
     session: AsyncSession = Depends(get_db_session),
 ) -> list[EventCardResponse]:
     """List events with optional search and category filters."""
 
-    events = await list_live_events(session, search=search, category=category, limit=limit, offset=offset)
+    events = await list_live_events(
+        session,
+        search=search,
+        category=category,
+        start_from=start_from,
+        end_to=end_to,
+        limit=limit,
+        offset=offset,
+    )
     return [EventCardResponse.model_validate(event) for event in events]
 
 
@@ -55,10 +67,10 @@ async def event_detail(event_key: str, session: AsyncSession = Depends(get_db_se
 async def event_seat_matrix(
     event_key: str,
     session: AsyncSession = Depends(get_db_session),
-    current_user: User = Depends(get_current_user),
+    current_user: User | None = Depends(get_optional_current_user),
 ) -> SeatMatrixResponse:
     """Return full seat matrix for booking UI."""
 
     event = await get_event_by_slug_or_id(session, event_key)
-    zones, seats = await get_event_seat_matrix(session, event.id, current_user_id=current_user.id)
+    zones, seats = await get_event_seat_matrix(session, event.id, current_user_id=current_user.id if current_user else None)
     return SeatMatrixResponse(event_id=event.id, event_slug=event.slug, queue_enabled=event.queue_enabled, zones=zones, seats=seats)

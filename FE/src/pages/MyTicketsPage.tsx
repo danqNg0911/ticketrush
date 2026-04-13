@@ -8,16 +8,23 @@ import type { TicketItem } from '../types'
 export function MyTicketsPage() {
   const [tickets, setTickets] = useState<TicketItem[]>([])
   const [selectedTicket, setSelectedTicket] = useState<TicketItem | null>(null)
+  const [search, setSearch] = useState('')
+  const [startAt, setStartAt] = useState('')
+  const [endAt, setEndAt] = useState('')
+  const [cancellingTicketId, setCancellingTicketId] = useState<number | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchTickets = async () => {
+  const fetchTickets = async (params?: { search?: string; start_from?: string; end_to?: string }) => {
     try {
       setLoading(true)
       setError(null)
-      const data = await bookingApi.myTickets()
+      const data = await bookingApi.myTickets(params)
       setTickets(data)
-      setSelectedTicket(data[0] ?? null)
+      setSelectedTicket((previousTicket) => {
+        if (!previousTicket) return data[0] ?? null
+        return data.find((ticket) => ticket.ticket_id === previousTicket.ticket_id) ?? data[0] ?? null
+      })
     } catch {
       setError('Failed to load your tickets.')
     } finally {
@@ -29,12 +36,61 @@ export function MyTicketsPage() {
     void fetchTickets()
   }, [])
 
+  const applySearch = () =>
+    fetchTickets({
+      search: search.trim() || undefined,
+      start_from: startAt ? dayjs(startAt).toISOString() : undefined,
+      end_to: endAt ? dayjs(endAt).toISOString() : undefined,
+    })
+
+  const handleCancelTicket = async (ticket: TicketItem) => {
+    const shouldDelete = window.confirm(`Delete ticket ${ticket.ticket_code} and release this seat?`)
+    if (!shouldDelete) return
+
+    try {
+      setCancellingTicketId(ticket.ticket_id)
+      setError(null)
+      await bookingApi.cancelTicket(ticket.ticket_id)
+      await applySearch()
+    } catch {
+      setError('Unable to delete ticket right now. Please try again.')
+    } finally {
+      setCancellingTicketId(null)
+    }
+  }
+
   return (
     <main className="page app-container my-tickets-page">
-      <header className="section-head">
+      <header className="section-head section-head--hero ticket-hero-head">
         <h1>My Tickets</h1>
         <p>Manage your digital passes and show QR at entrance.</p>
       </header>
+
+      <section className="panel ticket-filter-bar">
+        <input
+          type="search"
+          value={search}
+          onChange={(event) => setSearch(event.target.value)}
+          placeholder="Search by ticket code or event name"
+        />
+        <input type="datetime-local" value={startAt} onChange={(event) => setStartAt(event.target.value)} />
+        <input type="datetime-local" value={endAt} onChange={(event) => setEndAt(event.target.value)} />
+        <button type="button" className="btn btn-primary" onClick={() => void applySearch()}>
+          Search
+        </button>
+        <button
+          type="button"
+          className="btn btn-ghost"
+          onClick={() => {
+            setSearch('')
+            setStartAt('')
+            setEndAt('')
+            void fetchTickets()
+          }}
+        >
+          Reset
+        </button>
+      </section>
 
       {loading && <p className="state-text">Loading tickets...</p>}
       {error && <p className="state-text state-text--error">{error}</p>}
@@ -54,6 +110,7 @@ export function MyTicketsPage() {
                 <span>
                   {ticket.zone_name} • {ticket.seat_label}
                 </span>
+                <span className="ticket-item__code">{ticket.ticket_code}</span>
               </button>
             ))}
 
@@ -83,6 +140,15 @@ export function MyTicketsPage() {
                 <div className="ticket-qr">
                   <QRCodeSVG value={selectedTicket.qr_payload} size={220} includeMargin bgColor="#ffffff" fgColor="#001e40" />
                 </div>
+
+                <button
+                  type="button"
+                  className="btn btn-soft-danger"
+                  onClick={() => void handleCancelTicket(selectedTicket)}
+                  disabled={cancellingTicketId === selectedTicket.ticket_id}
+                >
+                  {cancellingTicketId === selectedTicket.ticket_id ? 'Deleting ticket...' : 'Delete Ticket & Release Seat'}
+                </button>
               </>
             ) : (
               <p className="state-text">Select one ticket from left panel.</p>

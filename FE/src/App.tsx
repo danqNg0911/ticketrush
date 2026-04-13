@@ -32,11 +32,7 @@ export default function App() {
 
         <Route
           path="/events/:eventKey/seats"
-          element={
-            <ProtectedRoute>
-              <SeatBookingPage />
-            </ProtectedRoute>
-          }
+          element={<SeatBookingPage />}
         />
 
         <Route

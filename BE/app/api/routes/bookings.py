@@ -1,6 +1,8 @@
 """Seat lock, release, checkout and ticket management routes."""
 
-from fastapi import APIRouter, Depends
+from datetime import datetime
+
+from fastapi import APIRouter, Depends, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_user
@@ -15,7 +17,7 @@ from app.schemas.booking import (
     ReleaseSeatsRequest,
 )
 from app.schemas.common import APIMessage
-from app.services.booking_service import checkout_locked_seats, fetch_my_tickets, lock_seats, release_seats
+from app.services.booking_service import cancel_ticket, checkout_locked_seats, fetch_my_tickets, lock_seats, release_seats
 
 router = APIRouter(prefix="/bookings", tags=["bookings"])
 
@@ -72,9 +74,30 @@ async def checkout(
 
 @router.get("/my-tickets", response_model=list[MyTicketResponse])
 async def my_tickets(
+    search: str | None = Query(default=None, max_length=120),
+    start_from: datetime | None = Query(default=None),
+    end_to: datetime | None = Query(default=None),
     session: AsyncSession = Depends(get_db_session),
     current_user: User = Depends(get_current_user),
 ) -> list[MyTicketResponse]:
     """List current user's purchased e-tickets with QR payload."""
 
-    return await fetch_my_tickets(session, user_id=current_user.id)
+    return await fetch_my_tickets(
+        session,
+        user_id=current_user.id,
+        search=search,
+        start_from=start_from,
+        end_to=end_to,
+    )
+
+
+@router.delete("/my-tickets/{ticket_id}", response_model=APIMessage)
+async def delete_ticket(
+    ticket_id: int,
+    session: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> APIMessage:
+    """Allow customer to cancel one owned ticket and release seat."""
+
+    await cancel_ticket(session, user_id=current_user.id, ticket_id=ticket_id)
+    return APIMessage(detail="Ticket canceled and seat released")

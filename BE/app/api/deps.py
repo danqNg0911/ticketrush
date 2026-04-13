@@ -11,6 +11,7 @@ from app.models.enums import UserRole
 from app.models.user import User
 
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
+oauth2_optional_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login", auto_error=False)
 
 
 async def get_current_user(
@@ -44,3 +45,21 @@ async def get_current_active_admin(current_user: User = Depends(get_current_user
     if current_user.role != UserRole.ADMIN:
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Admin role is required")
     return current_user
+
+
+async def get_optional_current_user(
+    session: AsyncSession = Depends(get_db_session),
+    token: str | None = Depends(oauth2_optional_scheme),
+) -> User | None:
+    """Resolve current user when token exists; otherwise return None."""
+
+    if not token:
+        return None
+
+    try:
+        payload = decode_access_token(token)
+    except TokenDecodeError:
+        return None
+
+    user_id = int(payload["sub"])
+    return await session.scalar(select(User).where(User.id == user_id))

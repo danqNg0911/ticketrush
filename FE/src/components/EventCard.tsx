@@ -1,6 +1,7 @@
 import dayjs from 'dayjs'
 import { Link } from 'react-router-dom'
 
+import { useAuth } from '../hooks/useAuth'
 import type { EventCard } from '../types'
 
 interface EventCardProps {
@@ -8,7 +9,8 @@ interface EventCardProps {
 }
 
 export function EventCard({ event }: EventCardProps) {
-  const destination = event.queue_enabled ? `/events/${event.slug}/queue` : `/events/${event.slug}/seats`
+  const { isAuthenticated } = useAuth()
+  const destination = !isAuthenticated ? `/events/${event.slug}/seats` : event.queue_enabled ? `/events/${event.slug}/queue` : `/events/${event.slug}/seats`
 
   return (
     <article className="event-card">
@@ -29,7 +31,7 @@ export function EventCard({ event }: EventCardProps) {
           <span>{event.venue}</span>
         </div>
         <Link to={destination} className="btn btn-primary">
-          {event.queue_enabled ? 'Join Queue' : 'Book Seats'}
+          {!isAuthenticated ? 'Preview Seats' : event.queue_enabled ? 'Join Queue' : 'Book Seats'}
         </Link>
       </div>
     </article>

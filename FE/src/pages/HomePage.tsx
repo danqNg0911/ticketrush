@@ -1,20 +1,46 @@
 import { useEffect, useMemo, useState } from 'react'
+import dayjs from 'dayjs'
 
 import { EventCard } from '../components/EventCard'
 import { eventApi } from '../lib/api'
 import type { EventCard as EventCardType } from '../types'
 
+const categoryFilters = [
+  { label: 'All Events', value: 'all' },
+  { label: 'Concerts', value: 'Concert' },
+  { label: 'Festivals', value: 'Festival' },
+  { label: 'Sports', value: 'Sports' },
+  { label: 'Theater', value: 'Theater' },
+] as const
+
+interface EventFilters {
+  search: string
+  category: (typeof categoryFilters)[number]['value']
+  start_at: string
+  end_at: string
+}
+
 export function HomePage() {
   const [events, setEvents] = useState<EventCardType[]>([])
-  const [search, setSearch] = useState('')
+  const [filters, setFilters] = useState<EventFilters>({
+    search: '',
+    category: 'all',
+    start_at: '',
+    end_at: '',
+  })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const fetchEvents = async (keyword?: string) => {
+  const fetchEvents = async (nextFilters: EventFilters) => {
     try {
       setLoading(true)
       setError(null)
-      const data = await eventApi.list(keyword)
+      const data = await eventApi.list({
+        search: nextFilters.search.trim() || undefined,
+        category: nextFilters.category === 'all' ? undefined : nextFilters.category,
+        start_from: nextFilters.start_at ? dayjs(nextFilters.start_at).toISOString() : undefined,
+        end_to: nextFilters.end_at ? dayjs(nextFilters.end_at).toISOString() : undefined,
+      })
       setEvents(data)
     } catch (err) {
       console.error(err)
@@ -25,7 +51,9 @@ export function HomePage() {
   }
 
   useEffect(() => {
-    void fetchEvents()
+    void fetchEvents(filters)
+    // Initial load only.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   const heroEvent = useMemo(() => events[0], [events])
@@ -49,13 +77,13 @@ export function HomePage() {
             className="hero__search"
             onSubmit={(event) => {
               event.preventDefault()
-              void fetchEvents(search)
+              void fetchEvents(filters)
             }}
           >
             <input
               type="search"
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
+              value={filters.search}
+              onChange={(event) => setFilters((previous) => ({ ...previous, search: event.target.value }))}
               placeholder="Search concert, festival, sports..."
             />
             <button type="submit" className="btn btn-primary">
@@ -63,6 +91,64 @@ export function HomePage() {
             </button>
           </form>
         </div>
+      </section>
+
+      <section className="app-container panel event-filters-panel">
+        <div className="event-filter-chips">
+          {categoryFilters.map((item) => (
+            <button
+              key={item.value}
+              type="button"
+              className={`btn ${filters.category === item.value ? 'btn-primary' : 'btn-ghost'}`}
+              onClick={() => {
+                const nextFilters = { ...filters, category: item.value }
+                setFilters(nextFilters)
+                void fetchEvents(nextFilters)
+              }}
+            >
+              {item.label}
+            </button>
+          ))}
+        </div>
+
+        <form
+          className="event-filter-form"
+          onSubmit={(event) => {
+            event.preventDefault()
+            void fetchEvents(filters)
+          }}
+        >
+          <label>
+            Start From
+            <input
+              type="datetime-local"
+              value={filters.start_at}
+              onChange={(event) => setFilters((previous) => ({ ...previous, start_at: event.target.value }))}
+            />
+          </label>
+          <label>
+            End To
+            <input
+              type="datetime-local"
+              value={filters.end_at}
+              onChange={(event) => setFilters((previous) => ({ ...previous, end_at: event.target.value }))}
+            />
+          </label>
+          <button type="submit" className="btn btn-primary">
+            Apply Filters
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost"
+            onClick={() => {
+              const resetFilters: EventFilters = { search: '', category: 'all', start_at: '', end_at: '' }
+              setFilters(resetFilters)
+              void fetchEvents(resetFilters)
+            }}
+          >
+            Reset
+          </button>
+        </form>
       </section>
 
       {heroEvent && (
