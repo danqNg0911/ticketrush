@@ -1,10 +1,11 @@
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { Search, Menu, X, User, Ticket } from 'lucide-react'
-import { NavLink, Link } from 'react-router-dom'
+import { Search, Menu, X, Ticket, LogOut } from 'lucide-react'
+import { NavLink, Link, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import LogoSVG from '@/assets/logo.svg'
+import { useAuth } from '@/context/AuthContext'
 
 const navLinks = [
   { label: 'Sự kiện', href: '/search' },
@@ -15,8 +16,7 @@ const navLinks = [
 export function Logo() {
   return (
     <Link to="/" aria-label="TicketRush Home" className="flex items-center gap-2">
-      <img src={LogoSVG} alt="TicketRush Logo" className="h-8 w-auto" />
-      <span className="text-lg font-black uppercase tracking-[0.3em] text-white">TicketRush</span>
+      <img src={LogoSVG} alt="TicketRush Logo" className="h-12 w-auto" />
     </Link>
   )
 }
@@ -24,13 +24,24 @@ export function Logo() {
 export function Navbar() {
   const [isScrolled, setIsScrolled] = useState(false)
   const [mobileOpen, setMobileOpen] = useState(false)
-  const [isLoggedIn, setIsLoggedIn] = useState(false)
+  const { user, isAuthenticated, logout } = useAuth()
+  const navigate = useNavigate()
 
   useEffect(() => {
     const handleScroll = () => setIsScrolled(window.scrollY > 20)
     window.addEventListener('scroll', handleScroll)
     return () => window.removeEventListener('scroll', handleScroll)
   }, [])
+
+  // Re-render when auth state changes
+  useEffect(() => {
+    // This ensures the navbar updates when login/logout occurs
+  }, [isAuthenticated, user])
+
+  const handleLogout = () => {
+    logout()
+    navigate('/')
+  }
 
   return (
     <header
@@ -69,22 +80,32 @@ export function Navbar() {
         </div>
 
         <div className="flex items-center gap-3">
-          {isLoggedIn ? (
+          {isAuthenticated && user ? (
             <>
-              <Button variant="ghost" size="icon" className="hidden sm:inline-flex">
-                <Ticket className="h-5 w-5" />
-              </Button>
-              <Button variant="outline" size="sm" className="gap-2 hidden sm:inline-flex">
-                <User className="h-4 w-4" />
-                Tài khoản
-              </Button>
+              <div className="hidden sm:flex items-center gap-3">
+                <Button variant="ghost" size="icon" onClick={() => navigate('/tickets')}>
+                  <Ticket className="h-5 w-5" />
+                </Button>
+                <Link to="/profile" className="flex items-center gap-2 hover:opacity-80 transition-opacity">
+                  <img
+                    src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.email}`}
+                    alt={user.name}
+                    className="h-9 w-9 rounded-full bg-white/10 border-2 border-primary/50"
+                  />
+                  <span className="text-sm font-medium text-white">{user.name}</span>
+                </Link>
+                <Button variant="ghost" size="sm" onClick={handleLogout} className="gap-2">
+                  <LogOut className="h-4 w-4" />
+                  Đăng xuất
+                </Button>
+              </div>
             </>
           ) : (
             <>
-              <Button variant="ghost" size="sm" className="hidden sm:inline-flex">
+              <Button variant="ghost" size="sm" className="hidden sm:inline-flex" onClick={() => navigate('/login')}>
                 Đăng nhập
               </Button>
-              <Button variant="primary" size="sm">
+              <Button variant="primary" size="sm" onClick={() => navigate('/login')}>
                 Đăng ký
               </Button>
             </>
@@ -121,10 +142,38 @@ export function Navbar() {
             <div className="pt-3 border-t border-white/10">
               <Input placeholder="Tìm kiếm..." className="w-full" />
             </div>
+            {!isAuthenticated && (
+              <div className="pt-3 border-t border-white/10 flex flex-col gap-2">
+                <Button variant="ghost" onClick={() => { navigate('/login'); setMobileOpen(false); }}>
+                  Đăng nhập
+                </Button>
+                <Button variant="primary" onClick={() => { navigate('/login'); setMobileOpen(false); }}>
+                  Đăng ký
+                </Button>
+              </div>
+            )}
+            {isAuthenticated && user && (
+              <div className="pt-3 border-t border-white/10">
+                <Link to="/profile" onClick={() => setMobileOpen(false)} className="flex items-center gap-3 mb-3 hover:opacity-80 transition-opacity">
+                  <img
+                    src={user.avatar || `https://api.dicebear.com/7.x/avataaars/svg?seed=${user.email}`}
+                    alt={user.name}
+                    className="h-12 w-12 rounded-full bg-white/10 border-2 border-primary/50"
+                  />
+                  <div>
+                    <p className="text-sm font-medium text-white">{user.name}</p>
+                    <p className="text-xs text-gray-400">{user.email}</p>
+                  </div>
+                </Link>
+                <Button variant="ghost" onClick={handleLogout} className="w-full justify-start gap-2">
+                  <LogOut className="h-4 w-4" />
+                  Đăng xuất
+                </Button>
+              </div>
+            )}
           </div>
         </div>
       )}
     </header>
   )
 }
-
