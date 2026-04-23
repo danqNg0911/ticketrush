@@ -1,80 +1,54 @@
-import { Navigate, Route, Routes } from 'react-router-dom'
+import { BrowserRouter, Routes, Route } from 'react-router-dom'
+import './App.css'
+import { CustomerLayout } from './components/layout/CustomerLayout'
+import { AdminLayout } from './components/layout/AdminLayout'
+import { AuthProvider } from './context/AuthContext'
+import Home from './pages/Home'
+import EventDetail from './pages/EventDetail'
+import Login from './pages/Login'
+import Checkout from './pages/Checkout'
+import Confirmation from './pages/Confirmation'
+import CustomerProfile from './pages/CustomerProfile'
+import CustomerTicket from './pages/CustomerTicket'
+import Search from './pages/Search'
+import Queue from './pages/Queue'
+import SeatSelection from './pages/SeatSelection'
+import ErrorPage from './pages/Error'
 
-import { Footer } from './components/Footer'
-import { ProtectedRoute } from './components/ProtectedRoute'
-import { TopNav } from './components/TopNav'
-import { AdminDashboardPage } from './pages/AdminDashboardPage'
-import { AdminEventsPage } from './pages/AdminEventsPage'
-import { HomePage } from './pages/HomePage'
-import { LoginPage } from './pages/LoginPage'
-import { MyAccountPage } from './pages/MyAccountPage'
-import { MyTicketsPage } from './pages/MyTicketsPage'
-import { QueuePage } from './pages/QueuePage'
-import { RegisterPage } from './pages/RegisterPage'
-import { SeatBookingPage } from './pages/SeatBookingPage'
-
-export default function App() {
+function App() {
   return (
-    <div className="app-shell">
-      <TopNav />
-      <Routes>
-        <Route path="/" element={<HomePage />} />
-        <Route path="/login" element={<LoginPage />} />
-        <Route path="/register" element={<RegisterPage />} />
+    <AuthProvider>
+      <BrowserRouter>
+        <Routes>
+          <Route path="/" element={<CustomerLayout />}>
+            <Route index element={<Home />} />
+            <Route path="login" element={<Login />} />
+            <Route path="event/:id" element={<EventDetail />} />
+            <Route path="checkout" element={<Checkout />} />
+            <Route path="confirmation" element={<Confirmation />} />
+            <Route path="profile" element={<CustomerProfile />} />
+            <Route path="tickets" element={<CustomerTicket />} />
+            <Route path="search" element={<Search />} />
+            <Route path="queue" element={<Queue />} />
+            <Route path="seat-selection" element={<SeatSelection />} />
+            <Route path="*" element={<ErrorPage />} />
+          </Route>
 
-        <Route
-          path="/events/:eventKey/queue"
-          element={
-            <ProtectedRoute>
-              <QueuePage />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/events/:eventKey/seats"
-          element={<SeatBookingPage />}
-        />
-
-        <Route
-          path="/my-account"
-          element={
-            <ProtectedRoute>
-              <MyAccountPage />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/my-tickets"
-          element={
-            <ProtectedRoute>
-              <MyTicketsPage />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/admin/dashboard"
-          element={
-            <ProtectedRoute adminOnly>
-              <AdminDashboardPage />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route
-          path="/admin/events"
-          element={
-            <ProtectedRoute adminOnly>
-              <AdminEventsPage />
-            </ProtectedRoute>
-          }
-        />
-
-        <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
-      <Footer />
-    </div>
+          <Route path="/admin" element={<AdminLayout title="Quản trị hệ thống" />}>
+            <Route
+              index
+              element={
+                <div className="min-h-screen bg-slate-950 text-white flex items-center justify-center px-6 py-12">
+                  <div className="max-w-3xl rounded-3xl border border-white/10 bg-slate-900/80 p-10 shadow-2xl">
+                    <h1 className="text-3xl font-bold mb-4">Admin Dashboard</h1>
+                    <p className="text-slate-300">Use the admin panel to manage events, orders, and users.</p>
+                  </div>
+                </div>
+              }
+            />
+          </Route>
+        </Routes>
+      </BrowserRouter>
+    </AuthProvider>
   )
 }
