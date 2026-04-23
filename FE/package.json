@@ -1,13 +1,13 @@
 {
   "name": "fe",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "vite --host 0.0.0.0 --port 5173",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview --host 0.0.0.0 --port 5173"
   },
   "dependencies": {
     "class-variance-authority": "^0.7.1",
