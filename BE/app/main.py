@@ -6,6 +6,7 @@ from pathlib import Path
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from sqlalchemy import text
 
 from app.api.router import api_router, ws_router
 from app.core.config import get_settings
@@ -17,16 +18,43 @@ from app.workers.tasks import worker_orchestrator
 settings = get_settings()
 
 
+async def _ensure_cover_image_url_text_column() -> None:
+    """Migrate events.cover_image_url to TEXT for large data URLs."""
+
+    async with engine.begin() as conn:
+        column_type = await conn.scalar(
+            text(
+                """
+                SELECT data_type
+                FROM information_schema.columns
+                WHERE table_schema = 'ticket_rush'
+                  AND table_name = 'events'
+                  AND column_name = 'cover_image_url'
+                """
+            )
+        )
+
+        if column_type and column_type.lower() != "text":
+            await conn.execute(
+                text(
+                    """
+                    ALTER TABLE ticket_rush.events
+                    ALTER COLUMN cover_image_url TYPE TEXT
+                    """
+                )
+            )
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """Initialize schema/seed data and start background workers."""
 
-    from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.execute(text("CREATE SCHEMA IF NOT EXISTS ticket_rush"))
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, checkfirst=True)
+    await _ensure_cover_image_url_text_column()
 
     from app.core.db import AsyncSessionLocal
 
