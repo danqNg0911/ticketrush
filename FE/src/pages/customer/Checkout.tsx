@@ -1,0 +1,233 @@
+import { useMemo, useState } from 'react'
+import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+
+import { useAuth } from '@/context/AuthContext'
+import { Navbar } from '@/components/layout/Navbar'
+import { Footer } from '@/components/layout/Footer'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { useCheckout } from '@/features/booking/hooks/useBooking'
+import { useEventSeats } from '@/features/events/hooks/useEvents'
+import { queueStorage } from '@/lib/storage'
+import type { Seat } from '@/types'
+import { AlertCircle, CreditCard, MapPin, QrCode, Rocket, Timer } from 'lucide-react'
+
+interface CheckoutLocationState {
+  lockedSeatIds?: number[]
+}
+
+export default function Checkout() {
+  const [searchParams] = useSearchParams()
+  const location = useLocation()
+  const navigate = useNavigate()
+  const { isAuthenticated, user } = useAuth()
+  const { checkout, isLoading: isSubmitting } = useCheckout()
+
+  const eventId = Number(searchParams.get('eventId'))
+  const eventKey = searchParams.get('eventKey') ?? undefined
+  const state = (location.state ?? {}) as CheckoutLocationState
+
+  const [termsAccepted, setTermsAccepted] = useState(false)
+  const [formData, setFormData] = useState({
+    fullName: user?.full_name ?? '',
+    email: user?.email ?? '',
+    phone: '',
+  })
+  const [errorMessage, setErrorMessage] = useState<string>('')
+
+  const { seats: matrix } = useEventSeats(eventKey)
+
+  const lockedSeats = useMemo(() => {
+    const allSeats = matrix?.seats ?? []
+
+    if (state.lockedSeatIds && state.lockedSeatIds.length > 0) {
+      return allSeats.filter((seat) => state.lockedSeatIds?.includes(seat.id))
+    }
+
+    return allSeats.filter((seat) => seat.is_locked_by_me)
+  }, [matrix?.seats, state.lockedSeatIds])
+
+  const subtotal = lockedSeats.reduce((sum, seat) => sum + Number(seat.price), 0)
+
+  const handleInputChange = (field: 'fullName' | 'email' | 'phone', value: string) => {
+    setFormData((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+
+    if (!isAuthenticated) {
+      navigate('/login')
+      return
+    }
+
+    if (!eventId || Number.isNaN(eventId)) {
+      setErrorMessage('Missing event information. Please reselect your seats.')
+      return
+    }
+
+    if (!termsAccepted) {
+      setErrorMessage('Please accept terms before checkout.')
+      return
+    }
+
+    try {
+      setErrorMessage('')
+      const queueToken = eventKey ? queueStorage.getToken(eventKey) ?? undefined : undefined
+      const result = await checkout(eventId, queueToken)
+      navigate('/confirmation', {
+        state: {
+          order: result,
+          eventKey,
+          profile: formData,
+          lockedSeats,
+        },
+      })
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Checkout failed')
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-slate-800 text-white font-body">
+      <Navbar />
+
+      <main className="max-w-screen-2xl mx-auto px-6 py-12">
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
+          <form className="lg:col-span-7 space-y-8" onSubmit={handleSubmit}>
+            <section>
+              <h2 className="text-3xl font-headline font-bold tracking-tight mb-8">Personal Information</h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-headline uppercase tracking-[0.2em] text-slate-400 font-bold">Full Name</label>
+                  <Input
+                    className="w-full bg-slate-800 border-none rounded-xl py-4 px-5 text-white"
+                    value={formData.fullName}
+                    onChange={(e) => handleInputChange('fullName', e.target.value)}
+                  />
+                </div>
+                <div className="space-y-2">
+                  <label className="block text-[10px] font-headline uppercase tracking-[0.2em] text-slate-400 font-bold">Email Address</label>
+                  <Input
+                    type="email"
+                    className="w-full bg-slate-800 border-none rounded-xl py-4 px-5 text-white"
+                    value={formData.email}
+                    onChange={(e) => handleInputChange('email', e.target.value)}
+                  />
+                </div>
+                <div className="md:col-span-2 space-y-2">
+                  <label className="block text-[10px] font-headline uppercase tracking-[0.2em] text-slate-400 font-bold">Phone Number</label>
+                  <Input
+                    type="tel"
+                    className="w-full bg-slate-800 border-none rounded-xl py-4 px-5 text-white"
+                    value={formData.phone}
+                    onChange={(e) => handleInputChange('phone', e.target.value)}
+                    placeholder="+84 900 000 000"
+                  />
+                </div>
+              </div>
+            </section>
+
+            <section className="backdrop-blur-xl bg-slate-900/70 p-6 rounded-2xl border border-white/10">
+              <div className="flex items-center gap-2 mb-4 text-slate-300">
+                <CreditCard className="w-5 h-5 text-primary" />
+                <p className="font-semibold">Demo Payment</p>
+              </div>
+              <p className="text-sm text-slate-400">This demo uses server-side checkout. No card info is processed.</p>
+            </section>
+
+            <div className="flex items-start gap-4 p-4 rounded-xl bg-white/5 border border-white/5">
+              <input
+                className="mt-1 rounded bg-slate-800 border-white/10 text-primary focus:ring-primary"
+                id="terms"
+                type="checkbox"
+                checked={termsAccepted}
+                onChange={(e) => setTermsAccepted(e.target.checked)}
+              />
+              <label className="text-sm text-slate-400 leading-relaxed" htmlFor="terms">
+                I agree to the terms and confirm this purchase.
+              </label>
+            </div>
+
+            {errorMessage && (
+              <div className="flex items-center gap-2 text-sm text-amber-300">
+                <AlertCircle className="w-4 h-4" />
+                {errorMessage}
+              </div>
+            )}
+
+            <Button
+              type="submit"
+              className="w-full py-6 rounded-2xl bg-gradient-to-r from-primary to-primary-container text-on-primary-container font-headline font-black uppercase tracking-widest text-lg flex items-center justify-center gap-3"
+              disabled={!termsAccepted || lockedSeats.length === 0}
+              isLoading={isSubmitting}
+            >
+              Complete Purchase
+              <Rocket className="h-6 w-6" />
+            </Button>
+          </form>
+
+          <aside className="lg:col-span-5 sticky top-28">
+            <div className="backdrop-blur-xl bg-slate-900/80 p-8 rounded-3xl overflow-hidden relative border border-white/10">
+              <h3 className="text-xl font-headline font-bold uppercase tracking-widest mb-6 border-b border-white/5 pb-4">Order Summary</h3>
+
+              <div className="space-y-3 mb-8 max-h-64 overflow-auto">
+                {lockedSeats.length === 0 ? (
+                  <p className="text-slate-400 text-sm">No locked seats found. Please go back and lock seats first.</p>
+                ) : (
+                  lockedSeats.map((seat: Seat) => (
+                    <div key={seat.id} className="flex justify-between items-center text-sm bg-slate-800/60 rounded-lg px-3 py-2">
+                      <span>{seat.seat_label}</span>
+                      <span>${Number(seat.price).toFixed(2)}</span>
+                    </div>
+                  ))
+                )}
+              </div>
+
+              <div className="space-y-3 mb-8">
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-500">Subtotal ({lockedSeats.length} seats)</span>
+                  <span className="text-white">${subtotal.toFixed(2)}</span>
+                </div>
+              </div>
+
+              <div className="pt-4 border-t border-white/5">
+                <div className="flex justify-between items-end">
+                  <div>
+                    <span className="text-[10px] font-headline font-black uppercase tracking-[0.3em] text-slate-500">Total Amount</span>
+                    <p className="text-4xl font-headline font-black text-white mt-1">${subtotal.toFixed(2)}</p>
+                  </div>
+                  <div className="bg-white p-2 rounded-lg">
+                    <div className="w-16 h-16 bg-slate-100 flex items-center justify-center">
+                      <QrCode className="text-slate-900 text-3xl" />
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {eventKey && (
+                <div className="mt-6 flex items-center gap-2 text-xs text-slate-400 uppercase tracking-wider">
+                  <MapPin className="w-4 h-4" />
+                  {eventKey}
+                </div>
+              )}
+            </div>
+
+            <div className="mt-6 flex items-center gap-4 bg-secondary/5 border border-secondary/20 p-4 rounded-2xl">
+              <Timer className="text-secondary h-5 w-5" />
+              <p className="text-xs text-secondary font-medium">Seats remain locked only for a limited time.</p>
+            </div>
+
+            <Link to={eventKey ? `/event/${eventKey}/seats` : '/search'} className="block mt-4">
+              <Button variant="outline" className="w-full">
+                Back To Seat Selection
+              </Button>
+            </Link>
+          </aside>
+        </div>
+      </main>
+
+      <Footer />
+    </div>
+  )
+}

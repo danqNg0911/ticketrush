@@ -17,10 +17,15 @@ from app.models.seat import Seat
 from app.models.event import SeatZone
 from app.models.user import User
 from app.schemas.admin import (
+    AdminEventRevenueResponse,
+    AdminTicketSaleResponse,
+    AdminUserResponse,
     AudienceDistributionResponse,
     DashboardSummaryResponse,
     EventDetailStatsResponse,
     EventZoneStatsResponse,
+    PaginatedAdminTicketSalesResponse,
+    PaginatedAdminUsersResponse,
     RevenuePoint,
     UploadImageResponse,
 )
@@ -296,6 +301,149 @@ async def upload_event_image(
 
     image_url = f"{str(request.base_url).rstrip('/')}/static/event-images/{filename}"
     return UploadImageResponse(image_url=image_url)
+
+
+@router.get("/users", response_model=PaginatedAdminUsersResponse)
+async def list_admin_users(
+    search: str | None = Query(default=None, max_length=120),
+    role: str | None = Query(default=None, max_length=40),
+    limit: int = Query(default=100, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_db_session),
+    _: User = Depends(get_current_active_admin),
+) -> PaginatedAdminUsersResponse:
+    """List users for admin management table."""
+
+    stmt = (
+        select(
+            User.id,
+            User.full_name,
+            User.email,
+            User.role,
+            User.gender,
+            User.age,
+            User.created_at,
+            func.count(Ticket.id).label("total_tickets"),
+        )
+        .outerjoin(Order, Order.user_id == User.id)
+        .outerjoin(OrderItem, OrderItem.order_id == Order.id)
+        .outerjoin(Ticket, Ticket.order_item_id == OrderItem.id)
+        .group_by(User.id, User.full_name, User.email, User.role, User.gender, User.age, User.created_at)
+        .order_by(User.created_at.desc())
+    )
+
+    if search:
+        pattern = f"%{search.strip()}%"
+        stmt = stmt.where(User.full_name.ilike(pattern) | User.email.ilike(pattern))
+
+    if role:
+        stmt = stmt.where(User.role == role.strip().lower())
+
+    filtered_stmt = stmt.subquery()
+    total = int((await session.scalar(select(func.count()).select_from(filtered_stmt))) or 0)
+
+    rows = (await session.execute(stmt.limit(limit).offset(offset))).all()
+    items = [
+        AdminUserResponse(
+            id=row.id,
+            full_name=row.full_name,
+            email=row.email,
+            role=str(row.role),
+            gender=str(row.gender),
+            age=int(row.age),
+            total_tickets=int(row.total_tickets or 0),
+            registered_at=row.created_at.isoformat(),
+        )
+        for row in rows
+    ]
+    return PaginatedAdminUsersResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get("/tickets/sales", response_model=PaginatedAdminTicketSalesResponse)
+async def list_admin_ticket_sales(
+    event_id: int | None = Query(default=None, ge=1),
+    status_filter: str | None = Query(default=None, max_length=40),
+    limit: int = Query(default=200, ge=1, le=500),
+    offset: int = Query(default=0, ge=0),
+    session: AsyncSession = Depends(get_db_session),
+    _: User = Depends(get_current_active_admin),
+) -> PaginatedAdminTicketSalesResponse:
+    """List recent ticket sale rows for admin ticket tab."""
+
+    stmt = (
+        select(
+            OrderItem.id,
+            Event.title.label("event_title"),
+            User.full_name.label("customer_name"),
+            Seat.seat_label,
+            SeatZone.name.label("zone_name"),
+            OrderItem.price,
+            Order.created_at,
+            Order.status,
+        )
+        .join(Order, OrderItem.order_id == Order.id)
+        .join(Event, Order.event_id == Event.id)
+        .join(User, Order.user_id == User.id)
+        .join(Seat, OrderItem.seat_id == Seat.id)
+        .join(SeatZone, Seat.zone_id == SeatZone.id)
+        .order_by(Order.created_at.desc())
+    )
+
+    if event_id:
+        stmt = stmt.where(Order.event_id == event_id)
+
+    if status_filter:
+        stmt = stmt.where(Order.status == status_filter.strip().lower())
+
+    filtered_stmt = stmt.subquery()
+    total = int((await session.scalar(select(func.count()).select_from(filtered_stmt))) or 0)
+
+    rows = (await session.execute(stmt.limit(limit).offset(offset))).all()
+    items = [
+        AdminTicketSaleResponse(
+            id=row.id,
+            event_title=row.event_title,
+            customer_name=row.customer_name,
+            seat_label=row.seat_label,
+            zone_name=row.zone_name,
+            price=float(row.price or 0),
+            purchased_at=row.created_at.isoformat(),
+            order_status=str(row.status),
+        )
+        for row in rows
+    ]
+    return PaginatedAdminTicketSalesResponse(items=items, total=total, limit=limit, offset=offset)
+
+
+@router.get("/tickets/revenue-by-event", response_model=list[AdminEventRevenueResponse])
+async def list_admin_event_revenue(
+    session: AsyncSession = Depends(get_db_session),
+    _: User = Depends(get_current_active_admin),
+) -> list[AdminEventRevenueResponse]:
+    """Return revenue and ticket volume grouped by event."""
+
+    stmt = (
+        select(
+            Event.id,
+            Event.title,
+            func.sum(case((Order.status == OrderStatus.PAID, OrderItem.price), else_=0)).label("revenue"),
+            func.sum(case((Order.status == OrderStatus.PAID, 1), else_=0)).label("tickets_sold"),
+        )
+        .outerjoin(Order, Order.event_id == Event.id)
+        .outerjoin(OrderItem, OrderItem.order_id == Order.id)
+        .group_by(Event.id, Event.title)
+        .order_by(Event.start_at.desc())
+    )
+    rows = (await session.execute(stmt)).all()
+    return [
+        AdminEventRevenueResponse(
+            event_id=row.id,
+            event_title=row.title,
+            tickets_sold=int(row.tickets_sold or 0),
+            revenue=float(row.revenue or 0),
+        )
+        for row in rows
+    ]
 
 
 @router.get("/dashboard/summary", response_model=DashboardSummaryResponse)

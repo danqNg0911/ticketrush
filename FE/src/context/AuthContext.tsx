@@ -1,63 +1,144 @@
-import { createContext, useContext, useState, useEffect} from 'react'
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
 import type { ReactNode } from 'react'
 
-interface User {
-  id: string
-  email: string
+import { authApi, extractApiErrorMessage } from '@/lib/api'
+import { authStorage } from '@/lib/storage'
+import type { User as ApiUser } from '@/types'
+
+export interface User extends ApiUser {
   name: string
   avatar?: string
 }
 
 interface AuthContextType {
   user: User | null
-  login: (email: string, password: string) => Promise<void>
-  logout: () => void
+  isLoading: boolean
   isAuthenticated: boolean
+  isAdmin: boolean
+  login: (email: string, password: string) => Promise<User>
+  register: (
+    email: string,
+    password: string,
+    fullName: string,
+    options?: { gender?: 'male' | 'female' | 'other'; age?: number },
+  ) => Promise<User>
+  updateProfile: (payload: { full_name: string; gender: 'male' | 'female' | 'other'; age: number }) => Promise<User>
+  logout: () => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
 
+function enrichUser(user: ApiUser): User {
+  return {
+    ...user,
+    name: user.full_name,
+  }
+}
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null)
+  const [isLoading, setIsLoading] = useState(true)
+  const [user, setUser] = useState<User | null>(() => {
+    const storedUser = authStorage.getUser()
+    return storedUser ? enrichUser(storedUser) : null
+  })
+
+  const isAuthenticated = Boolean(user && authStorage.getToken())
+  const isAdmin = user?.role === 'admin'
 
   useEffect(() => {
-    // Check for existing session on mount
-    const storedUser = localStorage.getItem('user')
-    if (storedUser) {
+    const bootstrap = async () => {
+      const token = authStorage.getToken()
+      if (!token) {
+        setIsLoading(false)
+        return
+      }
+
       try {
-        setUser(JSON.parse(storedUser))
-      } catch (e) {
-        localStorage.removeItem('user')
+        const profile = await authApi.me()
+        authStorage.setUser(profile)
+        setUser(enrichUser(profile))
+      } catch {
+        authStorage.clearAll()
+        setUser(null)
+      } finally {
+        setIsLoading(false)
       }
     }
+
+    void bootstrap()
   }, [])
 
   const login = async (email: string, password: string) => {
-    // Simulate API call - replace with actual API call in production
-    await new Promise(resolve => setTimeout(resolve, 500))
-
-    // Mock successful login
-    const mockUser: User = {
-      id: '1',
-      email,
-      name: email.split('@')[0],
-      avatar: `https://api.dicebear.com/7.x/avataaars/svg?seed=${email}`
+    setIsLoading(true)
+    try {
+      const response = await authApi.login(email, password)
+      authStorage.setToken(response.access_token)
+      authStorage.setUser(response.user)
+      const enrichedUser = enrichUser(response.user)
+      setUser(enrichedUser)
+      return enrichedUser
+    } catch (error) {
+      throw new Error(extractApiErrorMessage(error, 'Login failed. Please try again.'))
+    } finally {
+      setIsLoading(false)
     }
+  }
 
-    setUser(mockUser)
-    localStorage.setItem('user', JSON.stringify(mockUser))
+  const register = async (
+    email: string,
+    password: string,
+    fullName: string,
+    options?: { gender?: 'male' | 'female' | 'other'; age?: number },
+  ) => {
+    setIsLoading(true)
+    try {
+      const response = await authApi.register({
+        full_name: fullName,
+        email,
+        password,
+        gender: options?.gender ?? 'other',
+        age: options?.age ?? 18,
+      })
+      authStorage.setToken(response.access_token)
+      authStorage.setUser(response.user)
+      const enrichedUser = enrichUser(response.user)
+      setUser(enrichedUser)
+      return enrichedUser
+    } catch (error) {
+      throw new Error(extractApiErrorMessage(error, 'Registration failed. Please try again.'))
+    } finally {
+      setIsLoading(false)
+    }
   }
 
   const logout = () => {
+    authStorage.clearAll()
     setUser(null)
-    localStorage.removeItem('user')
   }
 
-  return (
-    <AuthContext.Provider value={{ user, login, logout, isAuthenticated: !!user }}>
-      {children}
-    </AuthContext.Provider>
+  const updateProfile = async (payload: { full_name: string; gender: 'male' | 'female' | 'other'; age: number }) => {
+    const profile = await authApi.updateMe(payload)
+    const enrichedUser = enrichUser(profile)
+    authStorage.setUser(profile)
+    setUser(enrichedUser)
+    return enrichedUser
+  }
+
+  const value = useMemo(
+    () => ({
+      user,
+      isLoading,
+      isAuthenticated,
+      isAdmin,
+      login,
+      register,
+      updateProfile,
+      logout,
+    }),
+    [user, isLoading, isAuthenticated, isAdmin, updateProfile],
   )
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 export function useAuth() {

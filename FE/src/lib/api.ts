@@ -1,10 +1,12 @@
 import axios from 'axios'
 import type { AxiosError } from 'axios'
 
+import { API_BASE_URL, API_TIMEOUT, API_RETRY_ATTEMPTS, API_RETRY_DELAY } from '../constants'
 import { authStorage } from './storage'
 import type {
   ApiMessage,
   AdminEventUpdatePayload,
+  AdminEventRevenueItem,
   AudienceDistribution,
   AuthResponse,
   CheckoutResponse,
@@ -14,6 +16,8 @@ import type {
   EventDetail,
   LockSeatResponse,
   OccupancyItem,
+  PaginatedAdminTicketSalesResponse,
+  PaginatedAdminUsersResponse,
   QueueJoinResponse,
   QueueStatusResponse,
   RevenuePoint,
@@ -21,11 +25,11 @@ import type {
   TicketItem,
 } from '../types'
 
-const apiBaseURL = import.meta.env.VITE_API_BASE_URL ?? 'http://localhost:8000/api'
+const apiBaseURL = API_BASE_URL
 
 export const api = axios.create({
   baseURL: apiBaseURL,
-  timeout: 15000,
+  timeout: API_TIMEOUT,
 })
 
 type RetryableRequest<T> = () => Promise<{ data: T }>
@@ -36,7 +40,7 @@ function isRetryableError(error: unknown): boolean {
   return !statusCode || statusCode >= 500 || error.code === 'ECONNABORTED' || error.code === 'ERR_NETWORK'
 }
 
-async function withRetry<T>(request: RetryableRequest<T>, attempts = 2): Promise<T> {
+async function withRetry<T>(request: RetryableRequest<T>, attempts = API_RETRY_ATTEMPTS): Promise<T> {
   let previousError: unknown
 
   for (let attempt = 1; attempt <= attempts; attempt += 1) {
@@ -48,12 +52,14 @@ async function withRetry<T>(request: RetryableRequest<T>, attempts = 2): Promise
       if (attempt >= attempts || !isRetryableError(error)) {
         break
       }
-      await new Promise((resolve) => window.setTimeout(resolve, 280 * attempt))
+      await new Promise((resolve) => window.setTimeout(resolve, API_RETRY_DELAY * attempt))
     }
   }
 
   throw previousError
 }
+
+export { withRetry}
 
 export function extractApiErrorMessage(error: unknown, fallback: string): string {
   if (!axios.isAxiosError(error)) return fallback
@@ -68,7 +74,7 @@ export function extractApiErrorMessage(error: unknown, fallback: string): string
   return fallback
 }
 
-api.interceptors.request.use((config) => {
+api.interceptors.request.use((config: any) => {
   const token = authStorage.getToken()
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
@@ -195,5 +201,14 @@ export const adminApi = {
   },
   async occupancy() {
     return withRetry(() => api.get<OccupancyItem[]>('/admin/dashboard/occupancy'))
+  },
+  async users(params?: { search?: string; role?: string; limit?: number; offset?: number }) {
+    return withRetry(() => api.get<PaginatedAdminUsersResponse>('/admin/users', { params }))
+  },
+  async ticketSales(params?: { event_id?: number; status_filter?: string; limit?: number; offset?: number }) {
+    return withRetry(() => api.get<PaginatedAdminTicketSalesResponse>('/admin/tickets/sales', { params }))
+  },
+  async revenueByEvent() {
+    return withRetry(() => api.get<AdminEventRevenueItem[]>('/admin/tickets/revenue-by-event'))
   },
 }

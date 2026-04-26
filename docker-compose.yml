@@ -40,6 +40,8 @@ services:
     depends_on:
       # postgres:
       #   condition: service_healthy
+      postgres:
+        condition: service_healthy
       redis:
         condition: service_started
 
@@ -52,6 +54,8 @@ services:
       - "5173:5173"
     depends_on:
       - backend
-
 # volumes:
 #   postgres_data:
+volumes:
+  postgres_data:
+

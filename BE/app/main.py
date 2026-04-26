@@ -24,7 +24,9 @@ async def lifespan(_: FastAPI):
     from sqlalchemy import text
     async with engine.begin() as conn:
         await conn.execute(text("CREATE SCHEMA IF NOT EXISTS ticket_rush"))
-        await conn.run_sync(Base.metadata.create_all)
+
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all, checkfirst=True)
 
     from app.core.db import AsyncSessionLocal
 

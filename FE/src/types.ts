@@ -217,3 +217,46 @@ export interface EventDetailStats {
 export interface ApiMessage {
   detail: string
 }
+
+export interface AdminUserItem {
+  id: number
+  full_name: string
+  email: string
+  role: string
+  gender: string
+  age: number
+  total_tickets: number
+  registered_at: string
+}
+
+export interface AdminTicketSaleItem {
+  id: number
+  event_title: string
+  customer_name: string
+  seat_label: string
+  zone_name: string
+  price: number
+  purchased_at: string
+  order_status: string
+}
+
+export interface AdminEventRevenueItem {
+  event_id: number
+  event_title: string
+  tickets_sold: number
+  revenue: number
+}
+
+export interface PaginatedAdminUsersResponse {
+  items: AdminUserItem[]
+  total: number
+  limit: number
+  offset: number
+}
+
+export interface PaginatedAdminTicketSalesResponse {
+  items: AdminTicketSaleItem[]
+  total: number
+  limit: number
+  offset: number
+}
