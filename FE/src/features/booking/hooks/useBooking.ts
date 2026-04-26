@@ -113,3 +113,28 @@ export function useMyTickets(params?: { search?: string; start_from?: string; en
 
   return { ...state, refetch: fetchTickets }
 }
+
+export function useCancelTicket() {
+  const [state, setState] = useState<UseBookingState>({
+    isLoading: false,
+    error: null,
+  })
+
+  const cancelTicket = useCallback(async (ticketId: number) => {
+    setState((prev) => ({ ...prev, isLoading: true, error: null }))
+    try {
+      const response = await bookingApi.cancelTicket(ticketId)
+      setState({ isLoading: false, error: null })
+      return response
+    } catch (error) {
+      setState((prev) => ({
+        ...prev,
+        isLoading: false,
+        error: error instanceof Error ? error.message : 'Failed to cancel ticket',
+      }))
+      throw error
+    }
+  }, [])
+
+  return { ...state, cancelTicket }
+}

@@ -90,6 +90,7 @@ export function Navbar() {
           </div>
         </div>
 
+        <div>    </div>
         {/* Auth Buttons */}
         <div className="flex items-center gap-3">
           {isAuthenticated && user ? (
@@ -144,7 +145,7 @@ export function Navbar() {
                 Đăng nhập
               </Button>
               <Button 
-                variant="primary" 
+                variant="ghost" 
                 size="sm" 
                 onClick={() => navigate('/register')}  // ✅ SỬA: Trỏ đúng route /register
               >

@@ -6,6 +6,7 @@ import { authStorage } from './storage'
 import type {
   ApiMessage,
   AdminEventUpdatePayload,
+  AdminEventRevenueItem,
   AudienceDistribution,
   AuthResponse,
   CheckoutResponse,
@@ -15,6 +16,8 @@ import type {
   EventDetail,
   LockSeatResponse,
   OccupancyItem,
+  PaginatedAdminTicketSalesResponse,
+  PaginatedAdminUsersResponse,
   QueueJoinResponse,
   QueueStatusResponse,
   RevenuePoint,
@@ -69,14 +72,6 @@ export function extractApiErrorMessage(error: unknown, fallback: string): string
   if (typedError.code === 'ERR_NETWORK') return 'Network issue detected. Please check your connection and retry.'
 
   return fallback
-}
-
-async function handleAuthError(error: unknown): Promise<never> {
-  if (axios.isAxiosError(error) && error.response?.status === 401) {
-    authStorage.clearAll()
-    window.location.href = '/login'
-  }
-  throw error
 }
 
 api.interceptors.request.use((config: any) => {
@@ -206,5 +201,14 @@ export const adminApi = {
   },
   async occupancy() {
     return withRetry(() => api.get<OccupancyItem[]>('/admin/dashboard/occupancy'))
+  },
+  async users(params?: { search?: string; role?: string; limit?: number; offset?: number }) {
+    return withRetry(() => api.get<PaginatedAdminUsersResponse>('/admin/users', { params }))
+  },
+  async ticketSales(params?: { event_id?: number; status_filter?: string; limit?: number; offset?: number }) {
+    return withRetry(() => api.get<PaginatedAdminTicketSalesResponse>('/admin/tickets/sales', { params }))
+  },
+  async revenueByEvent() {
+    return withRetry(() => api.get<AdminEventRevenueItem[]>('/admin/tickets/revenue-by-event'))
   },
 }

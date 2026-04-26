@@ -3,7 +3,7 @@
  */
 
 import { api, withRetry } from '../../../lib/api'
-import type { AuthResponse, User } from '../../../types'
+import type { AuthResponse } from '../../../types'
 
 export interface RegisterPayload {
   full_name: string

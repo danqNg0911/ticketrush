@@ -27,9 +27,8 @@ export default function Login() {
     e.preventDefault()
     setIsLoading(true)
     try {
-      await login(email, password)
-      // Force reload to update navbar immediately
-      window.location.href = '/'
+      const user = await login(email, password)
+      navigate(user.role === 'admin' ? '/admin' : '/', { replace: true })
     } catch (error) {
       console.error('Login failed:', error)
     } finally {

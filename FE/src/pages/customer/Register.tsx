@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
+import { Link } from 'react-router-dom'
 import { Button } from '@/components/ui/Button'
 import { ArrowLeft, Eye, EyeOff, Mail, Lock, User, Phone, Calendar, Users, Rocket } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
@@ -28,7 +28,23 @@ export default function Register() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const { register } = useAuth()
-  const navigate = useNavigate()
+
+  const calculateAge = (dateOfBirth: string) => {
+    if (!dateOfBirth) return 18
+    const today = new Date()
+    const dob = new Date(dateOfBirth)
+    let age = today.getFullYear() - dob.getFullYear()
+    const monthDiff = today.getMonth() - dob.getMonth()
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+      age -= 1
+    }
+    return Math.min(100, Math.max(10, age))
+  }
+
+  const normalizeGender = (gender: string): 'male' | 'female' | 'other' => {
+    if (gender === 'male' || gender === 'female' || gender === 'other') return gender
+    return 'other'
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -45,7 +61,10 @@ export default function Register() {
 
     setIsLoading(true)
     try {
-      await register(formData.email, formData.password, formData.fullName)
+      await register(formData.email, formData.password, formData.fullName, {
+        gender: normalizeGender(formData.gender),
+        age: calculateAge(formData.dateOfBirth),
+      })
       // Force reload to update navbar immediately
       window.location.href = '/'
     } catch (error) {

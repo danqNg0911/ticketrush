@@ -1,10 +1,10 @@
 """Application configuration loaded from environment variables."""
 
 from functools import lru_cache
-from typing import Annotated, Literal
+from typing import Literal
 
 from pydantic import Field, field_validator
-from pydantic_settings import BaseSettings, NoDecode, SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 class Settings(BaseSettings):
@@ -26,7 +26,7 @@ class Settings(BaseSettings):
     access_token_expire_minutes: int = 1440
 
     # NoDecode prevents pydantic-settings from forcing JSON parsing for comma-separated env strings.
-    allowed_origins: Annotated[list[str], NoDecode] = Field(default_factory=lambda: ["http://localhost:5173"])
+    allowed_origins: list[str] = Field(default_factory=lambda: ["http://localhost:5173"])
 
     hold_minutes_default: int = 10
     queue_batch_size_default: int = 50
@@ -47,6 +47,11 @@ class Settings(BaseSettings):
     @classmethod
     def parse_allowed_origins(cls, value: object) -> list[str]:
         """Allow comma-separated CORS origins in env variables."""
+        if isinstance(value, str):
+            return [origin.strip() for origin in value.split(",") if origin.strip()]
+        if isinstance(value, list):
+            return value
+        return ["http://localhost:5173"]
 
         if isinstance(value, list):
             return value

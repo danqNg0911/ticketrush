@@ -1,352 +1,207 @@
-import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Badge } from '@/components/ui/Badge';
-import { Modal } from '@/components/ui/Modal';
-import {
-  Users,
-  Search,
-  Filter,
-  Edit,
-  Trash2,
-  Plus,
-  Mail,
-  Phone,
-  Calendar,
-  Ticket
-} from 'lucide-react';
+import { useEffect, useState } from 'react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { Badge } from '@/components/ui/Badge'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Modal } from '@/components/ui/Modal'
+import { adminApi, extractApiErrorMessage } from '@/lib/api'
+import type { AdminUserItem } from '@/types'
+import { Calendar, Mail, Search, Ticket, UserRound } from 'lucide-react'
 
-interface User {
-  id: number;
-  name: string;
-  email: string;
-  phone: string;
-  role: 'admin' | 'customer' | 'organizer';
-  registeredDate: string;
-  totalTickets: number;
-  status: 'active' | 'inactive' | 'banned';
-  avatar?: string;
+const PAGE_SIZE = 10
+
+function roleVariant(role: string): 'default' | 'warning' | 'info' {
+  if (role === 'admin') return 'default'
+  return role === 'customer' ? 'info' : 'warning'
 }
 
-const mockUsers: User[] = [
-  { id: 1, name: 'Nguyễn Văn A', email: 'nguyenvana@example.com', phone: '0901234567', role: 'customer', registeredDate: '2025-01-15', totalTickets: 12, status: 'active' },
-  { id: 2, name: 'Trần Thị B', email: 'tranthib@example.com', phone: '0912345678', role: 'customer', registeredDate: '2025-02-20', totalTickets: 8, status: 'active' },
-  { id: 3, name: 'Lê Văn C', email: 'levanc@example.com', phone: '0923456789', role: 'organizer', registeredDate: '2025-01-10', totalTickets: 25, status: 'active' },
-  { id: 4, name: 'Phạm Thị D', email: 'phamthid@example.com', phone: '0934567890', role: 'customer', registeredDate: '2025-03-05', totalTickets: 5, status: 'inactive' },
-  { id: 5, name: 'Hoàng Văn E', email: 'hoangvane@example.com', phone: '0945678901', role: 'customer', registeredDate: '2025-02-28', totalTickets: 3, status: 'banned' },
-  { id: 6, name: 'Đỗ Thị F', email: 'dothif@example.com', phone: '0956789012', role: 'admin', registeredDate: '2024-12-01', totalTickets: 50, status: 'active' },
-];
+function genderLabel(gender: string) {
+  if (gender === 'male') return 'Male'
+  if (gender === 'female') return 'Female'
+  return 'Other'
+}
 
 export default function AdminUsers() {
-  const [users] = useState<User[]>(mockUsers);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [roleFilter, setRoleFilter] = useState<string>('all');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedUser, setSelectedUser] = useState<User | null>(null);
+  const [users, setUsers] = useState<AdminUserItem[]>([])
+  const [loading, setLoading] = useState(true)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [roleFilter, setRoleFilter] = useState<'all' | string>('all')
+  const [error, setError] = useState<string | null>(null)
+  const [selectedUser, setSelectedUser] = useState<AdminUserItem | null>(null)
+  const [page, setPage] = useState(1)
+  const [total, setTotal] = useState(0)
 
-  const filteredUsers = users.filter(user => {
-    const matchesSearch = user.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         user.email.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesRole = roleFilter === 'all' || user.role === roleFilter;
-    const matchesStatus = statusFilter === 'all' || user.status === statusFilter;
-    return matchesSearch && matchesRole && matchesStatus;
-  });
+  async function loadUsers() {
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await adminApi.users({
+        search: searchTerm || undefined,
+        role: roleFilter === 'all' ? undefined : roleFilter,
+        limit: PAGE_SIZE,
+        offset: (page - 1) * PAGE_SIZE,
+      })
+      setUsers(response.items)
+      setTotal(response.total)
+    } catch (errorValue) {
+      setError(extractApiErrorMessage(errorValue, 'Khong the tai danh sach users.'))
+    } finally {
+      setLoading(false)
+    }
+  }
 
-  const getRoleBadge = (role: User['role']) => {
-    const variants = {
-      admin: 'default',
-      organizer: 'warning',
-      customer: 'info',
-    } as const;
+  useEffect(() => {
+    void loadUsers()
+  }, [page, roleFilter, searchTerm])
 
-    const labels = {
-      admin: 'Quản trị viên',
-      organizer: 'Tổ chức',
-      customer: 'Khách hàng',
-    };
-
-    return <Badge variant={variants[role]} size="sm">{labels[role]}</Badge>;
-  };
-
-  const getStatusBadge = (status: User['status']) => {
-    const variants = {
-      active: 'success',
-      inactive: 'default',
-      banned: 'warning',
-    } as const;
-
-    const labels = {
-      active: 'Hoạt động',
-      inactive: 'Không hoạt động',
-      banned: 'Bị khóa',
-    };
-
-    return <Badge variant={variants[status]} size="sm">{labels[status]}</Badge>;
-  };
-
-  const handleViewUser = (user: User) => {
-    setSelectedUser(user);
-    setIsModalOpen(true);
-  };
-
-  const totalUsers = users.length;
-  const activeUsers = users.filter(u => u.status === 'active').length;
-  const totalCustomers = users.filter(u => u.role === 'customer').length;
+  const totalPages = Math.max(1, Math.ceil(total / PAGE_SIZE))
+  const totalTickets = users.reduce((sum, user) => sum + user.total_tickets, 0)
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
-        <div>
-          <h2 className="text-2xl font-display font-bold text-white">Quản lý Người dùng</h2>
-          <p className="text-gray-400 mt-1">Quản lý tất cả người dùng trên hệ thống</p>
-        </div>
-        <Button variant="primary">
-          <Plus className="h-4 w-4" />
-          Thêm người dùng
-        </Button>
+      <div>
+        <h2 className="text-2xl font-display font-bold text-white">Quan ly nguoi dung</h2>
+        <p className="text-gray-400 mt-1">Filter va phan trang server-side</p>
       </div>
 
-      {/* Stats Overview */}
-      <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+      {error && (
+        <Card className="border-red-500/30 bg-red-500/10">
+          <CardContent className="pt-6 text-sm text-red-200">{error}</CardContent>
+        </Card>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-400 mb-1">Tổng người dùng</p>
-                <p className="text-2xl font-bold text-white">{totalUsers}</p>
-              </div>
-              <div className="h-12 w-12 rounded-lg bg-brand-red/20 flex items-center justify-center">
-                <Users className="h-6 w-6 text-brand-red" />
-              </div>
-            </div>
+            <p className="text-sm text-gray-400">Tong users (filtered)</p>
+            <p className="text-2xl font-bold text-white mt-2">{total}</p>
           </CardContent>
         </Card>
-
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-400 mb-1">Đang hoạt động</p>
-                <p className="text-2xl font-bold text-green-400">{activeUsers}</p>
-              </div>
-              <div className="h-12 w-12 rounded-lg bg-green-500/20 flex items-center justify-center">
-                <Calendar className="h-6 w-6 text-green-400" />
-              </div>
-            </div>
+            <p className="text-sm text-gray-400">Page</p>
+            <p className="text-2xl font-bold text-brand-yellow mt-2">{page}/{totalPages}</p>
           </CardContent>
         </Card>
-
         <Card>
           <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-400 mb-1">Khách hàng</p>
-                <p className="text-2xl font-bold text-brand-yellow">{totalCustomers}</p>
-              </div>
-              <div className="h-12 w-12 rounded-lg bg-brand-yellow/20 flex items-center justify-center">
-                <Ticket className="h-6 w-6 text-brand-yellow" />
-              </div>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardContent className="pt-6">
-            <div className="flex items-center justify-between">
-              <div>
-                <p className="text-sm text-gray-400 mb-1">Tổ chức sự kiện</p>
-                <p className="text-2xl font-bold text-purple-400">
-                  {users.filter(u => u.role === 'organizer').length}
-                </p>
-              </div>
-              <div className="h-12 w-12 rounded-lg bg-purple-500/20 flex items-center justify-center">
-                <Mail className="h-6 w-6 text-purple-400" />
-              </div>
-            </div>
+            <p className="text-sm text-gray-400">Tickets (page)</p>
+            <p className="text-2xl font-bold text-green-400 mt-2">{totalTickets}</p>
           </CardContent>
         </Card>
       </div>
 
-      {/* Filters */}
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input
-                placeholder="Tìm kiếm theo tên hoặc email..."
+                placeholder="Tim theo ten hoac email..."
                 className="pl-10"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(event) => {
+                  setSearchTerm(event.target.value)
+                  setPage(1)
+                }}
               />
             </div>
-            <div className="flex items-center gap-2">
-              <Filter className="h-4 w-4 text-gray-400" />
-              <select
-                className="h-10 px-3 rounded-lg bg-space-700/50 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-red"
-                value={roleFilter}
-                onChange={(e) => setRoleFilter(e.target.value)}
-              >
-                <option value="all">Tất cả vai trò</option>
-                <option value="admin">Quản trị viên</option>
-                <option value="organizer">Tổ chức</option>
-                <option value="customer">Khách hàng</option>
-              </select>
-              <select
-                className="h-10 px-3 rounded-lg bg-space-700/50 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-red"
-                value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
-              >
-                <option value="all">Tất cả trạng thái</option>
-                <option value="active">Hoạt động</option>
-                <option value="inactive">Không hoạt động</option>
-                <option value="banned">Bị khóa</option>
-              </select>
-            </div>
+            <select
+              className="h-10 px-3 rounded-lg bg-space-700/50 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-red"
+              value={roleFilter}
+              onChange={(event) => {
+                setRoleFilter(event.target.value)
+                setPage(1)
+              }}
+            >
+              <option value="all">Tat ca vai tro</option>
+              <option value="admin">Admin</option>
+              <option value="customer">Customer</option>
+            </select>
           </div>
         </CardContent>
       </Card>
 
-      {/* Users Table */}
       <Card>
         <CardHeader>
-          <CardTitle>Danh sách người dùng</CardTitle>
+          <CardTitle>Danh sach nguoi dung</CardTitle>
         </CardHeader>
         <CardContent>
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-white/10 text-left text-sm text-gray-400">
-                  <th className="pb-3 font-medium">Người dùng</th>
-                  <th className="pb-3 font-medium">Email</th>
-                  <th className="pb-3 font-medium">Số điện thoại</th>
-                  <th className="pb-3 font-medium">Vai trò</th>
-                  <th className="pb-3 font-medium">Vé đã mua</th>
-                  <th className="pb-3 font-medium">Ngày đăng ký</th>
-                  <th className="pb-3 font-medium">Trạng thái</th>
-                  <th className="pb-3 font-medium text-right">Thao tác</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredUsers.map((user) => (
-                  <tr key={user.id} className="border-b border-white/5 hover:bg-white/5 transition-colors">
-                    <td className="py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="h-10 w-10 rounded-full bg-gradient-to-br from-brand-red to-brand-yellow flex items-center justify-center text-sm font-bold text-space-900">
-                          {user.name.charAt(0)}
-                        </div>
-                        <span className="text-white font-medium">{user.name}</span>
-                      </div>
-                    </td>
-                    <td className="py-4 text-gray-300">{user.email}</td>
-                    <td className="py-4 text-gray-300">{user.phone}</td>
-                    <td className="py-4">{getRoleBadge(user.role)}</td>
-                    <td className="py-4">
-                      <div className="flex items-center gap-2">
-                        <Ticket className="h-4 w-4 text-gray-400" />
-                        <span className="text-white">{user.totalTickets}</span>
-                      </div>
-                    </td>
-                    <td className="py-4 text-gray-400 text-sm">{user.registeredDate}</td>
-                    <td className="py-4">{getStatusBadge(user.status)}</td>
-                    <td className="py-4">
-                      <div className="flex items-center justify-end gap-2">
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleViewUser(user)}
-                        >
-                          <Edit className="h-4 w-4" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          size="icon"
-                          className="text-red-400 hover:text-red-300"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </div>
-                    </td>
+          {loading ? (
+            <p className="text-sm text-gray-300">Dang tai users...</p>
+          ) : users.length === 0 ? (
+            <p className="text-sm text-gray-400">Khong co users phu hop.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 text-left text-gray-400">
+                    <th className="pb-3 font-medium">User</th>
+                    <th className="pb-3 font-medium">Role</th>
+                    <th className="pb-3 font-medium">Gender/Age</th>
+                    <th className="pb-3 font-medium">Tickets</th>
+                    <th className="pb-3 font-medium">Registered</th>
+                    <th className="pb-3 font-medium text-right">Action</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
+                </thead>
+                <tbody>
+                  {users.map((user) => (
+                    <tr key={user.id} className="border-b border-white/5">
+                      <td className="py-4">
+                        <div>
+                          <p className="text-white font-medium">{user.full_name}</p>
+                          <p className="text-gray-400 text-xs">{user.email}</p>
+                        </div>
+                      </td>
+                      <td className="py-4">
+                        <Badge variant={roleVariant(user.role)} size="sm">{user.role}</Badge>
+                      </td>
+                      <td className="py-4 text-gray-300">{genderLabel(user.gender)} / {user.age}</td>
+                      <td className="py-4 text-gray-300">{user.total_tickets}</td>
+                      <td className="py-4 text-gray-400">{new Date(user.registered_at).toLocaleDateString('vi-VN')}</td>
+                      <td className="py-4 text-right">
+                        <Button variant="ghost" size="sm" onClick={() => setSelectedUser(user)}>Xem</Button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          <div className="mt-4 flex justify-end gap-2">
+            <Button variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => setPage((value) => Math.max(1, value - 1))}>
+              Truoc
+            </Button>
+            <Button variant="outline" size="sm" disabled={page >= totalPages || loading} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>
+              Sau
+            </Button>
           </div>
         </CardContent>
       </Card>
 
-      {filteredUsers.length === 0 && (
-        <Card>
-          <CardContent className="py-12 text-center">
-            <Users className="h-12 w-12 text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-400">Không tìm thấy người dùng nào</p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* User Detail Modal */}
-      <Modal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        title="Chi tiết người dùng"
-        className="max-w-lg"
-      >
-        {selectedUser && (
+      <Modal isOpen={selectedUser !== null} onClose={() => setSelectedUser(null)} title="Chi tiet user" className="max-w-lg">
+        {selectedUser ? (
           <div className="space-y-4">
-            <div className="flex items-center gap-4 pb-4 border-b border-white/10">
-              <div className="h-16 w-16 rounded-full bg-gradient-to-br from-brand-red to-brand-yellow flex items-center justify-center text-xl font-bold text-space-900">
-                {selectedUser.name.charAt(0)}
+            <div className="flex items-center gap-3">
+              <div className="h-12 w-12 rounded-full bg-gradient-to-br from-brand-red to-brand-yellow flex items-center justify-center text-space-900 font-bold">
+                {selectedUser.full_name.charAt(0)}
               </div>
               <div>
-                <h3 className="text-lg font-semibold text-white">{selectedUser.name}</h3>
-                <div className="flex items-center gap-2 mt-1">
-                  {getRoleBadge(selectedUser.role)}
-                  {getStatusBadge(selectedUser.status)}
-                </div>
+                <p className="text-white font-semibold">{selectedUser.full_name}</p>
+                <Badge variant={roleVariant(selectedUser.role)} size="sm">{selectedUser.role}</Badge>
               </div>
             </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Email</label>
-                <div className="flex items-center gap-2 text-white">
-                  <Mail className="h-4 w-4 text-gray-400" />
-                  <span>{selectedUser.email}</span>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Số điện thoại</label>
-                <div className="flex items-center gap-2 text-white">
-                  <Phone className="h-4 w-4 text-gray-400" />
-                  <span>{selectedUser.phone}</span>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Ngày đăng ký</label>
-                <div className="flex items-center gap-2 text-white">
-                  <Calendar className="h-4 w-4 text-gray-400" />
-                  <span>{selectedUser.registeredDate}</span>
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs text-gray-400 mb-1">Tổng vé đã mua</label>
-                <div className="flex items-center gap-2 text-white">
-                  <Ticket className="h-4 w-4 text-gray-400" />
-                  <span>{selectedUser.totalTickets}</span>
-                </div>
-              </div>
+            <div className="space-y-2 text-sm text-gray-300">
+              <div className="flex items-center gap-2"><Mail className="h-4 w-4" /><span>{selectedUser.email}</span></div>
+              <div className="flex items-center gap-2"><UserRound className="h-4 w-4" /><span>{genderLabel(selectedUser.gender)}, {selectedUser.age} tuoi</span></div>
+              <div className="flex items-center gap-2"><Ticket className="h-4 w-4" /><span>{selectedUser.total_tickets} tickets da mua</span></div>
+              <div className="flex items-center gap-2"><Calendar className="h-4 w-4" /><span>Registered {new Date(selectedUser.registered_at).toLocaleString('vi-VN')}</span></div>
             </div>
-
-            <div className="flex justify-end gap-3 pt-4 border-t border-white/10">
-              <Button variant="ghost" onClick={() => setIsModalOpen(false)}>Đóng</Button>
-              <Button variant="primary">Chỉnh sửa</Button>
-            </div>
+            <div className="pt-2 flex justify-end"><Button variant="ghost" onClick={() => setSelectedUser(null)}>Dong</Button></div>
           </div>
-        )}
+        ) : null}
       </Modal>
     </div>
-  );
+  )
 }

@@ -1,172 +1,221 @@
-import { useState } from 'react';
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from '@/components/ui/Card';
-import { Button } from '@/components/ui/Button';
-import { Input } from '@/components/ui/Input';
-import { Badge } from '@/components/ui/Badge';
-import { Modal } from '@/components/ui/Modal';
-import {
-  Calendar,
-  Plus,
-  Edit,
-  Trash2,
-  Search,
-  Filter,
-  MapPin,
-  Clock,
-  Users,
-  DollarSign
-} from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react'
+import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
+import { Button } from '@/components/ui/Button'
+import { Input } from '@/components/ui/Input'
+import { Badge } from '@/components/ui/Badge'
+import { Modal } from '@/components/ui/Modal'
+import { adminApi, extractApiErrorMessage } from '@/lib/api'
+import type { EventCard, EventStatus } from '@/types'
+import { Calendar, Clock, Edit, Filter, MapPin, Plus, Search, Trash2, Users } from 'lucide-react'
 
-interface Event {
-  id: number;
-  name: string;
-  description: string;
-  date: string;
-  time: string;
-  venue: string;
-  totalSeats: number;
-  soldSeats: number;
-  priceRange: string;
-  status: 'draft' | 'active' | 'completed' | 'cancelled';
-  image?: string;
+interface EventFormState {
+  title: string
+  description: string
+  category: string
+  venue: string
+  start_at: string
+  end_at: string
+  status: EventStatus
+  queue_enabled: boolean
+  hold_minutes: string
+  queue_release_batch: string
+  max_active_queue_tokens: string
+  zone_code: string
+  zone_name: string
+  row_count: string
+  seats_per_row: string
+  zone_price: string
+  zone_color: string
 }
 
-const mockEvents: Event[] = [
-  {
-    id: 1,
-    name: 'Hòa nhạc Âm vang Mùa xuân',
-    description: 'Chương trình hòa nhạc đặc sắc với sự tham gia của nhiều nghệ sĩ nổi tiếng',
-    date: '2025-05-15',
-    time: '19:30',
-    venue: 'Nhà hát Lớn Hà Nội',
-    totalSeats: 1000,
-    soldSeats: 850,
-    priceRange: '500,000₫ - 2,000,000₫',
-    status: 'active',
-  },
-  {
-    id: 2,
-    name: 'Festival Âm nhạc Quốc tế',
-    description: 'Lễ hội âm nhạc quy mô quốc tế với các nghệ sĩ từ nhiều nước',
-    date: '2025-06-20',
-    time: '18:00',
-    venue: 'Sân vận động Mỹ Đình',
-    totalSeats: 1500,
-    soldSeats: 1200,
-    priceRange: '800,000₫ - 5,000,000₫',
-    status: 'active',
-  },
-  {
-    id: 3,
-    name: 'Buổi diễn Kịch Nghệ thuật',
-    description: 'Vở kịch kinh điển được dàn dựng công phu',
-    date: '2025-04-10',
-    time: '20:00',
-    venue: 'Nhà hát Tuổi trẻ',
-    totalSeats: 500,
-    soldSeats: 500,
-    priceRange: '300,000₫ - 1,000,000₫',
-    status: 'completed',
-  },
-  {
-    id: 4,
-    name: 'Live Show Ca sĩ nổi tiếng',
-    description: 'Liveshow độc quyền của ca sĩ hàng đầu V-Pop',
-    date: '2025-07-01',
-    time: '19:00',
-    venue: 'Trung tâm Hội nghị Quốc gia',
-    totalSeats: 800,
-    soldSeats: 320,
-    priceRange: '1,000,000₫ - 8,000,000₫',
-    status: 'active',
-  },
-  {
-    id: 5,
-    name: 'Đêm nhạc Acoustic',
-    description: 'Không gian âm nhạc acoustic ấm cúng và lãng mạn',
-    date: '2025-08-15',
-    time: '20:30',
-    venue: 'Phòng trà Không Tên',
-    totalSeats: 200,
-    soldSeats: 0,
-    priceRange: '200,000₫ - 500,000₫',
-    status: 'draft',
-  },
-];
+const INITIAL_FORM: EventFormState = {
+  title: '',
+  description: '',
+  category: '',
+  venue: '',
+  start_at: '',
+  end_at: '',
+  status: 'live',
+  queue_enabled: true,
+  hold_minutes: '10',
+  queue_release_batch: '50',
+  max_active_queue_tokens: '200',
+  zone_code: 'A',
+  zone_name: 'Standard',
+  row_count: '10',
+  seats_per_row: '20',
+  zone_price: '500000',
+  zone_color: '#024ddf',
+}
+
+function toDatetimeLocal(value: string) {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+  const timezoneOffset = date.getTimezoneOffset() * 60000
+  return new Date(date.getTime() - timezoneOffset).toISOString().slice(0, 16)
+}
+
+function statusBadge(status: EventStatus) {
+  if (status === 'live') return <Badge variant="success" size="sm">Live</Badge>
+  if (status === 'closed') return <Badge variant="warning" size="sm">Closed</Badge>
+  return <Badge variant="outline" size="sm">Draft</Badge>
+}
 
 export default function AdminEvents() {
-  const [events, setEvents] = useState<Event[]>(mockEvents);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState<string>('all');
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingEvent, setEditingEvent] = useState<Event | null>(null);
+  const [events, setEvents] = useState<EventCard[]>([])
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+  const [searchTerm, setSearchTerm] = useState('')
+  const [statusFilter, setStatusFilter] = useState<'all' | EventStatus>('all')
+  const [isModalOpen, setIsModalOpen] = useState(false)
+  const [editingEvent, setEditingEvent] = useState<EventCard | null>(null)
+  const [form, setForm] = useState<EventFormState>(INITIAL_FORM)
+  const [error, setError] = useState<string | null>(null)
 
-  const filteredEvents = events.filter(event => {
-    const matchesSearch = event.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                         event.venue.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = statusFilter === 'all' || event.status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
+  const filteredEvents = useMemo(
+    () =>
+      events.filter((event) => {
+        const matchesSearch =
+          event.title.toLowerCase().includes(searchTerm.toLowerCase()) ||
+          event.venue.toLowerCase().includes(searchTerm.toLowerCase())
+        const matchesStatus = statusFilter === 'all' || event.status === statusFilter
+        return matchesSearch && matchesStatus
+      }),
+    [events, searchTerm, statusFilter],
+  )
 
-  const getStatusBadge = (status: Event['status']) => {
-    const variants = {
-      draft: 'default',
-      active: 'success',
-      completed: 'info',
-      cancelled: 'warning',
-    } as const;
-
-    const labels = {
-      draft: 'Nháp',
-      active: 'Đang bán',
-      completed: 'Hoàn thành',
-      cancelled: 'Đã hủy',
-    };
-
-    return <Badge variant={variants[status]} size="sm">{labels[status]}</Badge>;
-  };
-
-  const handleDeleteEvent = (id: number) => {
-    if (confirm('Bạn có chắc chắn muốn xóa sự kiện này?')) {
-      setEvents(events.filter(e => e.id !== id));
+  async function loadEvents() {
+    setLoading(true)
+    setError(null)
+    try {
+      const response = await adminApi.listEvents()
+      setEvents(response)
+    } catch (errorValue) {
+      setError(extractApiErrorMessage(errorValue, 'Khong the tai danh sach su kien.'))
+    } finally {
+      setLoading(false)
     }
-  };
+  }
 
-  const handleEditEvent = (event: Event) => {
-    setEditingEvent(event);
-    setIsModalOpen(true);
-  };
+  useEffect(() => {
+    void loadEvents()
+  }, [])
 
-  const handleCreateEvent = () => {
-    setEditingEvent(null);
-    setIsModalOpen(true);
-  };
+  function openCreateModal() {
+    setEditingEvent(null)
+    setForm(INITIAL_FORM)
+    setIsModalOpen(true)
+  }
+
+  function openEditModal(event: EventCard) {
+    setEditingEvent(event)
+    setForm((previous) => ({
+      ...previous,
+      title: event.title,
+      description: event.description,
+      category: event.category,
+      venue: event.venue,
+      start_at: toDatetimeLocal(event.start_at),
+      end_at: toDatetimeLocal(event.end_at),
+      status: event.status,
+      queue_enabled: event.queue_enabled,
+    }))
+    setIsModalOpen(true)
+  }
+
+  async function handleDeleteEvent(eventKey: string) {
+    const accepted = window.confirm('Ban co chac chan muon xoa su kien nay?')
+    if (!accepted) return
+
+    try {
+      await adminApi.deleteEvent(eventKey)
+      setEvents((previous) => previous.filter((event) => event.slug !== eventKey))
+    } catch (errorValue) {
+      setError(extractApiErrorMessage(errorValue, 'Khong the xoa su kien.'))
+    }
+  }
+
+  async function handleSubmit() {
+    if (!form.title || !form.description || !form.category || !form.venue || !form.start_at || !form.end_at) {
+      setError('Vui long nhap day du thong tin bat buoc.')
+      return
+    }
+
+    setSaving(true)
+    setError(null)
+
+    try {
+      const basePayload = {
+        title: form.title,
+        description: form.description,
+        category: form.category,
+        venue: form.venue,
+        start_at: new Date(form.start_at).toISOString(),
+        end_at: new Date(form.end_at).toISOString(),
+        status: form.status,
+        queue_enabled: form.queue_enabled,
+        hold_minutes: Number(form.hold_minutes),
+        queue_release_batch: Number(form.queue_release_batch),
+        max_active_queue_tokens: Number(form.max_active_queue_tokens),
+      }
+
+      if (editingEvent) {
+        const updated = await adminApi.updateEvent(editingEvent.slug, basePayload)
+        setEvents((previous) => previous.map((event) => (event.id === updated.id ? updated : event)))
+      } else {
+        const created = await adminApi.createEvent({
+          ...basePayload,
+          zones: [
+            {
+              code: form.zone_code,
+              name: form.zone_name,
+              row_count: Number(form.row_count),
+              seats_per_row: Number(form.seats_per_row),
+              price: Number(form.zone_price),
+              color: form.zone_color,
+            },
+          ],
+        })
+        setEvents((previous) => [created, ...previous])
+      }
+
+      setIsModalOpen(false)
+    } catch (errorValue) {
+      setError(extractApiErrorMessage(errorValue, 'Khong the luu su kien.'))
+    } finally {
+      setSaving(false)
+    }
+  }
 
   return (
     <div className="space-y-6">
-      {/* Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div>
-          <h2 className="text-2xl font-display font-bold text-white">Quản lý Sự kiện</h2>
-          <p className="text-gray-400 mt-1">Tạo mới và quản lý tất cả sự kiện</p>
+          <h2 className="text-2xl font-display font-bold text-white">Quan ly su kien</h2>
+          <p className="text-gray-400 mt-1">Ket noi truc tiep voi backend admin event API</p>
         </div>
-        <Button variant="primary" onClick={handleCreateEvent}>
+        <Button variant="primary" onClick={openCreateModal}>
           <Plus className="h-4 w-4" />
-          Tạo sự kiện mới
+          Tao su kien
         </Button>
       </div>
 
-      {/* Filters */}
+      {error && (
+        <Card className="border-red-500/30 bg-red-500/10">
+          <CardContent className="pt-6 text-sm text-red-200">{error}</CardContent>
+        </Card>
+      )}
+
       <Card>
         <CardContent className="pt-6">
           <div className="flex flex-col md:flex-row gap-4">
             <div className="flex-1 relative">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
               <Input
-                placeholder="Tìm kiếm sự kiện..."
+                placeholder="Tim theo ten su kien hoac dia diem..."
                 className="pl-10"
                 value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
+                onChange={(event) => setSearchTerm(event.target.value)}
               />
             </div>
             <div className="flex items-center gap-2">
@@ -174,164 +223,259 @@ export default function AdminEvents() {
               <select
                 className="h-10 px-3 rounded-lg bg-space-700/50 border border-white/20 text-white text-sm focus:outline-none focus:ring-2 focus:ring-brand-red"
                 value={statusFilter}
-                onChange={(e) => setStatusFilter(e.target.value)}
+                onChange={(event) => setStatusFilter(event.target.value as 'all' | EventStatus)}
               >
-                <option value="all">Tất cả trạng thái</option>
-                <option value="draft">Nháp</option>
-                <option value="active">Đang bán</option>
-                <option value="completed">Hoàn thành</option>
-                <option value="cancelled">Đã hủy</option>
+                <option value="all">Tat ca status</option>
+                <option value="draft">Draft</option>
+                <option value="live">Live</option>
+                <option value="closed">Closed</option>
               </select>
             </div>
           </div>
         </CardContent>
       </Card>
 
-      {/* Events Grid */}
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {filteredEvents.map((event) => (
-          <Card key={event.id} className="group hover:border-brand-red/30 transition-all">
-            <CardHeader>
-              <div className="flex items-start justify-between">
-                <div className="flex-1">
-                  <CardTitle className="text-lg mb-2">{event.name}</CardTitle>
-                  <CardDescription className="line-clamp-2">{event.description}</CardDescription>
-                </div>
-                {getStatusBadge(event.status)}
-              </div>
-            </CardHeader>
-            <CardContent className="space-y-3">
-              <div className="grid grid-cols-2 gap-3 text-sm">
-                <div className="flex items-center gap-2 text-gray-300">
-                  <Calendar className="h-4 w-4 text-brand-red" />
-                  <span>{event.date}</span>
-                </div>
-                <div className="flex items-center gap-2 text-gray-300">
-                  <Clock className="h-4 w-4 text-brand-yellow" />
-                  <span>{event.time}</span>
-                </div>
-                <div className="flex items-center gap-2 text-gray-300">
-                  <MapPin className="h-4 w-4 text-green-400" />
-                  <span className="truncate">{event.venue}</span>
-                </div>
-                <div className="flex items-center gap-2 text-gray-300">
-                  <Users className="h-4 w-4 text-purple-400" />
-                  <span>{event.soldSeats}/{event.totalSeats} ghế</span>
-                </div>
-              </div>
-
-              {/* Progress Bar */}
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs text-gray-400">
-                  <span>Tỷ lệ lấp đầy</span>
-                  <span>{Math.round((event.soldSeats / event.totalSeats) * 100)}%</span>
-                </div>
-                <div className="h-2 bg-white/10 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-brand-red to-brand-yellow rounded-full transition-all"
-                    style={{ width: `${(event.soldSeats / event.totalSeats) * 100}%` }}
-                  />
-                </div>
-              </div>
-
-              <div className="flex items-center justify-between pt-2">
-                <div className="flex items-center gap-2 text-green-400 font-medium">
-                  <DollarSign className="h-4 w-4" />
-                  <span>{event.priceRange}</span>
-                </div>
-              </div>
-            </CardContent>
-            <CardFooter className="border-t border-white/10 pt-4 flex justify-end gap-2">
-              <Button
-                variant="ghost"
-                size="sm"
-                onClick={() => handleEditEvent(event)}
-              >
-                <Edit className="h-4 w-4" />
-                Chỉnh sửa
-              </Button>
-              <Button
-                variant="ghost"
-                size="sm"
-                className="text-red-400 hover:text-red-300"
-                onClick={() => handleDeleteEvent(event.id)}
-              >
-                <Trash2 className="h-4 w-4" />
-                Xóa
-              </Button>
-              <Button variant="primary" size="sm">
-                Cấu hình ghế
-              </Button>
-            </CardFooter>
-          </Card>
-        ))}
-      </div>
-
-      {filteredEvents.length === 0 && (
+      {loading ? (
         <Card>
-          <CardContent className="py-12 text-center">
-            <Calendar className="h-12 w-12 text-gray-600 mx-auto mb-4" />
-            <p className="text-gray-400">Không tìm thấy sự kiện nào</p>
-          </CardContent>
+          <CardContent className="pt-6 text-sm text-gray-300">Dang tai su kien...</CardContent>
+        </Card>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {filteredEvents.map((event) => {
+            const startDate = new Date(event.start_at)
+            const endDate = new Date(event.end_at)
+            return (
+              <Card key={event.id} className="group hover:border-brand-red/30 transition-all">
+                <CardHeader>
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <CardTitle className="text-lg">{event.title}</CardTitle>
+                      <p className="text-sm text-gray-400 mt-1 line-clamp-2">{event.description}</p>
+                    </div>
+                    {statusBadge(event.status)}
+                  </div>
+                </CardHeader>
+                <CardContent className="space-y-3">
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div className="flex items-center gap-2 text-gray-300">
+                      <Calendar className="h-4 w-4 text-brand-red" />
+                      <span>{startDate.toLocaleDateString('vi-VN')}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-gray-300">
+                      <Clock className="h-4 w-4 text-brand-yellow" />
+                      <span>{startDate.toLocaleTimeString('vi-VN', { hour: '2-digit', minute: '2-digit' })}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-gray-300 col-span-2">
+                      <MapPin className="h-4 w-4 text-green-400" />
+                      <span className="truncate">{event.venue}</span>
+                    </div>
+                    <div className="flex items-center gap-2 text-gray-300 col-span-2">
+                      <Users className="h-4 w-4 text-cyan-400" />
+                      <span>
+                        Queue: {event.queue_enabled ? 'enabled' : 'disabled'} | Ket thuc: {endDate.toLocaleDateString('vi-VN')}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="outline" size="sm">{event.category}</Badge>
+                    {event.cover_image_url ? <Badge variant="info" size="sm">Has image</Badge> : null}
+                    <Badge variant="default" size="sm">/{event.slug}</Badge>
+                  </div>
+
+                  <div className="flex justify-end gap-2 pt-2">
+                    <Button variant="ghost" size="sm" onClick={() => openEditModal(event)}>
+                      <Edit className="h-4 w-4" />
+                      Sua
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="sm"
+                      className="text-red-400 hover:text-red-300"
+                      onClick={() => void handleDeleteEvent(event.slug)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                      Xoa
+                    </Button>
+                  </div>
+                </CardContent>
+              </Card>
+            )
+          })}
+        </div>
+      )}
+
+      {!loading && filteredEvents.length === 0 && (
+        <Card>
+          <CardContent className="py-12 text-center text-gray-400">Khong tim thay su kien phu hop.</CardContent>
         </Card>
       )}
 
-      {/* Create/Edit Event Modal */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        title={editingEvent ? 'Chỉnh sửa sự kiện' : 'Tạo sự kiện mới'}
+        title={editingEvent ? 'Cap nhat su kien' : 'Tao su kien moi'}
         className="max-w-2xl"
       >
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Tên sự kiện</label>
-            <Input placeholder="Nhập tên sự kiện" defaultValue={editingEvent?.name} />
+            <label className="block text-sm font-medium text-gray-300 mb-2">Ten su kien</label>
+            <Input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Mô tả</label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Mo ta</label>
             <textarea
               className="w-full rounded-lg border bg-space-700/50 border-white/20 px-4 py-2.5 text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-red"
               rows={3}
-              placeholder="Mô tả chi tiết sự kiện"
-              defaultValue={editingEvent?.description}
+              value={form.description}
+              onChange={(event) => setForm({ ...form, description: event.target.value })}
             />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Ngày tổ chức</label>
-              <Input type="date" defaultValue={editingEvent?.date} />
+              <label className="block text-sm font-medium text-gray-300 mb-2">Category</label>
+              <Input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Giờ bắt đầu</label>
-              <Input type="time" defaultValue={editingEvent?.time} />
+              <label className="block text-sm font-medium text-gray-300 mb-2">Venue</label>
+              <Input value={form.venue} onChange={(event) => setForm({ ...form, venue: event.target.value })} />
             </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Địa điểm</label>
-            <Input placeholder="Nhập địa điểm" defaultValue={editingEvent?.venue} />
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Tổng số ghế</label>
-              <Input type="number" placeholder="1000" defaultValue={editingEvent?.totalSeats} />
+              <label className="block text-sm font-medium text-gray-300 mb-2">Start at</label>
+              <Input
+                type="datetime-local"
+                value={form.start_at}
+                onChange={(event) => setForm({ ...form, start_at: event.target.value })}
+              />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Trạng thái</label>
-              <select className="w-full rounded-lg border bg-space-700/50 border-white/20 px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-red" defaultValue={editingEvent?.status || 'draft'}>
-                <option value="draft">Nháp</option>
-                <option value="active">Đang bán</option>
-                <option value="completed">Hoàn thành</option>
-                <option value="cancelled">Đã hủy</option>
+              <label className="block text-sm font-medium text-gray-300 mb-2">End at</label>
+              <Input
+                type="datetime-local"
+                value={form.end_at}
+                onChange={(event) => setForm({ ...form, end_at: event.target.value })}
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Status</label>
+              <select
+                className="w-full rounded-lg border bg-space-700/50 border-white/20 px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-red"
+                value={form.status}
+                onChange={(event) => setForm({ ...form, status: event.target.value as EventStatus })}
+              >
+                <option value="draft">Draft</option>
+                <option value="live">Live</option>
+                <option value="closed">Closed</option>
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Queue</label>
+              <select
+                className="w-full rounded-lg border bg-space-700/50 border-white/20 px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-red"
+                value={form.queue_enabled ? 'true' : 'false'}
+                onChange={(event) => setForm({ ...form, queue_enabled: event.target.value === 'true' })}
+              >
+                <option value="true">Enabled</option>
+                <option value="false">Disabled</option>
               </select>
             </div>
           </div>
-          <div className="flex justify-end gap-3 pt-4">
-            <Button variant="ghost" onClick={() => setIsModalOpen(false)}>Hủy</Button>
-            <Button variant="primary">{editingEvent ? 'Cập nhật' : 'Tạo mới'}</Button>
+
+          <div className="grid grid-cols-3 gap-4">
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Hold (min)</label>
+              <Input
+                type="number"
+                min={1}
+                value={form.hold_minutes}
+                onChange={(event) => setForm({ ...form, hold_minutes: event.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Release batch</label>
+              <Input
+                type="number"
+                min={1}
+                value={form.queue_release_batch}
+                onChange={(event) => setForm({ ...form, queue_release_batch: event.target.value })}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Max queue</label>
+              <Input
+                type="number"
+                min={1}
+                value={form.max_active_queue_tokens}
+                onChange={(event) => setForm({ ...form, max_active_queue_tokens: event.target.value })}
+              />
+            </div>
+          </div>
+
+          {!editingEvent && (
+            <>
+              <div className="pt-3 border-t border-white/10">
+                <p className="text-sm text-gray-300 mb-3">Zone khoi tao (bat buoc khi tao moi)</p>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Zone code</label>
+                    <Input value={form.zone_code} onChange={(event) => setForm({ ...form, zone_code: event.target.value })} />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Zone name</label>
+                    <Input value={form.zone_name} onChange={(event) => setForm({ ...form, zone_name: event.target.value })} />
+                  </div>
+                </div>
+                <div className="grid grid-cols-3 gap-4 mt-4">
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Rows</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={form.row_count}
+                      onChange={(event) => setForm({ ...form, row_count: event.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Seats/row</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={form.seats_per_row}
+                      onChange={(event) => setForm({ ...form, seats_per_row: event.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Price</label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={form.zone_price}
+                      onChange={(event) => setForm({ ...form, zone_price: event.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="mt-4">
+                  <label className="block text-sm font-medium text-gray-300 mb-2">Zone color</label>
+                  <Input value={form.zone_color} onChange={(event) => setForm({ ...form, zone_color: event.target.value })} />
+                </div>
+              </div>
+            </>
+          )}
+
+          <div className="flex justify-end gap-3 pt-2">
+            <Button variant="ghost" onClick={() => setIsModalOpen(false)}>
+              Huy
+            </Button>
+            <Button variant="primary" onClick={() => void handleSubmit()} isLoading={saving}>
+              {editingEvent ? 'Cap nhat' : 'Tao moi'}
+            </Button>
           </div>
         </div>
       </Modal>
     </div>
-  );
+  )
 }

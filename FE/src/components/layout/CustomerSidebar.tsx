@@ -1,7 +1,7 @@
 import React from 'react';
 import { 
   Ticket, User, Heart, CreditCard, Settings, 
-  HelpCircle, LogOut, Star, Camera 
+  HelpCircle, LogOut, Star 
 } from 'lucide-react';
 
 interface CustomerSidebarProps {

@@ -1,151 +1,110 @@
-import { useState, useMemo } from 'react'
-import { Link } from 'react-router-dom'
-import { Navbar } from '@/components/layout/Navbar'
-import { Footer } from '@/components/layout/Footer'
-import { EventCard } from '@/components/ui/EventCard'
-import { FilterSection, FilterCategory, FilterOption } from '@/components/ui/Filter'
-import { Button } from '@/components/ui/Button'
-import { Input } from '@/components/ui/Input'
-import { 
-  Search as SearchIcon, 
-  ChevronLeft, 
-  ChevronRight, 
-  X,
-  SlidersHorizontal,
-  Calendar,
-  MapPin,
-  DollarSign
-} from 'lucide-react'
+import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 
-import { 
-  SEARCH_RESULTS, 
-  VENUES, 
-  CATEGORIE,
-  TIMEFRAMES 
-} from '@/mocks'
+import { Footer } from '@/components/layout/Footer'
+import { Navbar } from '@/components/layout/Navbar'
+import { Button } from '@/components/ui/Button'
+import { EventCard } from '@/components/ui/EventCard'
+import { Input } from '@/components/ui/Input'
+import { useEvents } from '@/features/events/hooks/useEvents'
+import { Calendar, ChevronLeft, ChevronRight, DollarSign, MapPin, Search as SearchIcon, SlidersHorizontal, X } from 'lucide-react'
+
+const FALLBACK_IMAGE =
+  'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1200&q=80'
+
+function formatDate(date: string) {
+  return new Date(date).toLocaleDateString('en-US', {
+    month: 'short',
+    day: '2-digit',
+  })
+}
 
 export default function Search() {
+  const [urlParams, setUrlParams] = useSearchParams()
+  const [searchInput, setSearchInput] = useState('')
   const [searchQuery, setSearchQuery] = useState('')
-  const [selectedCategories, setSelectedCategories] = useState<string[]>([])
-  const [selectedTimeframe, setSelectedTimeframe] = useState('')
-  const [priceRange, setPriceRange] = useState([40, 450])
-  const [selectedVenue, setSelectedVenue] = useState('All Venues')
-  const [sortBy, setSortBy] = useState('recommended')
+  const [selectedCategory, setSelectedCategory] = useState('all')
+  const [selectedVenue, setSelectedVenue] = useState('all')
+  const [priceRange, setPriceRange] = useState<[number, number]>([0, 1000])
+  const [sortBy, setSortBy] = useState<'recommended' | 'date' | 'title'>('recommended')
   const [currentPage, setCurrentPage] = useState(1)
   const itemsPerPage = 6
 
-  const toggleCategory = (category: string) => {
-    setSelectedCategories(prev =>
-      prev.includes(category) 
-        ? prev.filter(c => c !== category) 
-        : [...prev, category]
-    )
-    setCurrentPage(1)
-  }
+  const { events, isLoading, error } = useEvents({
+    search: searchQuery || undefined,
+    category: selectedCategory === 'all' ? undefined : selectedCategory,
+  })
 
-  const handlePriceChange = (index: number, value: number) => {
-    const newRange = [...priceRange]
-    newRange[index] = value
-    if (index === 0 && value > priceRange[1] - 10) {
-      newRange[1] = value + 10
-    }
-    if (index === 1 && value < priceRange[0] + 10) {
-      newRange[0] = value - 10
-    }
-    setPriceRange(newRange)
-    setCurrentPage(1)
-  }
+  useEffect(() => {
+    const initialQuery = urlParams.get('q') ?? ''
+    const initialCategory = urlParams.get('category') ?? 'all'
 
-  const resetFilters = () => {
-    setSelectedCategories([])
-    setSelectedTimeframe('')
-    setPriceRange([40, 450])
-    setSelectedVenue('All Venues')
-    setSearchQuery('')
-    setCurrentPage(1)
-  }
+    setSearchInput(initialQuery)
+    setSearchQuery(initialQuery)
+    setSelectedCategory(initialCategory || 'all')
+  }, [urlParams.toString()])
 
-  // Filter and search logic
+  const categories = useMemo(() => {
+    const uniqueCategories = Array.from(new Set(events.map((event) => event.category).filter(Boolean)))
+    return ['all', ...uniqueCategories]
+  }, [events])
+
+  const venues = useMemo(() => {
+    const uniqueVenues = Array.from(new Set(events.map((event) => event.venue).filter(Boolean)))
+    return ['all', ...uniqueVenues]
+  }, [events])
+
   const filteredResults = useMemo(() => {
-    let results = [...SEARCH_RESULTS]
+    let results = [...events]
 
-    // Search query filter
-    if (searchQuery) {
-      const query = searchQuery.toLowerCase()
-      results = results.filter(event =>
-        event.title.toLowerCase().includes(query) ||
-        event.venue.toLowerCase().includes(query) ||
-        event.category.toLowerCase().includes(query)
-      )
+    if (selectedVenue !== 'all') {
+      results = results.filter((event) => event.venue === selectedVenue)
     }
 
-    // Category filter
-    if (selectedCategories.length > 0) {
-      results = results.filter(event =>
-        selectedCategories.includes(event.category)
-      )
-    }
-
-    // Venue filter
-    if (selectedVenue !== 'All Venues') {
-      results = results.filter(event =>
-        event.venue === selectedVenue
-      )
-    }
-
-    // Price range filter
-    results = results.filter(event => {
-      const price = parseInt(event.price.replace('$', ''))
-      return price >= priceRange[0] && price <= priceRange[1]
-    })
-
-    // Timeframe filter (simplified - in real app would filter by date)
-    if (selectedTimeframe) {
-      // Add date filtering logic here
-    }
-
-    // Sorting
-    switch (sortBy) {
-      case 'price-low':
-        results.sort((a, b) => parseInt(a.price.replace('$', '')) - parseInt(b.price.replace('$', '')))
-        break
-      case 'price-high':
-        results.sort((a, b) => parseInt(b.price.replace('$', '')) - parseInt(a.price.replace('$', '')))
-        break
-      case 'date':
-        results.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-        break
-      default:
-        // Recommended - keep featured first
-        results.sort((a, b) => (b.isFeatured ? 1 : 0) - (a.isFeatured ? 1 : 0))
+    if (sortBy === 'date') {
+      results.sort((a, b) => new Date(a.start_at).getTime() - new Date(b.start_at).getTime())
+    } else if (sortBy === 'title') {
+      results.sort((a, b) => a.title.localeCompare(b.title))
     }
 
     return results
-  }, [searchQuery, selectedCategories, selectedVenue, priceRange, selectedTimeframe, sortBy])
+  }, [events, selectedVenue, priceRange, sortBy])
 
-  // Pagination
   const totalPages = Math.ceil(filteredResults.length / itemsPerPage)
-  const paginatedResults = filteredResults.slice(
-    (currentPage - 1) * itemsPerPage,
-    currentPage * itemsPerPage
-  )
+  const paginatedResults = filteredResults.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage)
 
-  const activeFiltersCount = 
-    selectedCategories.length + 
-    (selectedVenue !== 'All Venues' ? 1 : 0) + 
-    (selectedTimeframe ? 1 : 0) +
-    (priceRange[0] !== 40 || priceRange[1] !== 450 ? 1 : 0)
+  const activeFiltersCount = Number(selectedCategory !== 'all') + Number(selectedVenue !== 'all')
+
+  const onSearchSubmit = () => {
+    setCurrentPage(1)
+    const nextSearch = searchInput.trim()
+    setSearchQuery(nextSearch)
+    const nextParams = new URLSearchParams(urlParams)
+    if (nextSearch) nextParams.set('q', nextSearch)
+    else nextParams.delete('q')
+    if (selectedCategory !== 'all') nextParams.set('category', selectedCategory)
+    else nextParams.delete('category')
+    setUrlParams(nextParams, { replace: true })
+  }
+
+  const resetFilters = () => {
+    setSearchInput('')
+    setSearchQuery('')
+    setSelectedCategory('all')
+    setSelectedVenue('all')
+    setPriceRange([0, 1000])
+    setSortBy('recommended')
+    setCurrentPage(1)
+    setUrlParams({}, { replace: true })
+  }
 
   return (
     <div className="min-h-screen bg-slate-950 text-white">
       <Navbar />
-      
+
       <main className="max-w-screen-2xl mx-auto px-6 py-12">
-        {/* Prominent Search Bar Section */}
         <div className="mb-16 max-w-3xl mx-auto text-center">
-          <h1 className="text-4xl md:text-5xl font-headline font-black tracking-tighter mb-6">
-            FIND YOUR RUSH
-          </h1>
+          <h1 className="text-4xl md:text-5xl font-headline font-black tracking-tighter mb-6">FIND YOUR RUSH</h1>
           <div className="relative group">
             <div className="absolute -inset-1 bg-gradient-to-r from-primary to-secondary rounded-xl blur opacity-25 group-hover:opacity-40 transition duration-1000" />
             <div className="relative flex items-center bg-slate-900/80 rounded-xl p-2 border border-white/10">
@@ -153,21 +112,23 @@ export default function Search() {
               <Input
                 className="bg-transparent border-none focus:ring-0 w-full px-4 py-3 text-lg font-body placeholder:text-slate-500"
                 placeholder="Search by artist, venue, or event..."
-                value={searchQuery}
-                onChange={(e) => {
-                  setSearchQuery(e.target.value)
-                  setCurrentPage(1)
+                value={searchInput}
+                onChange={(event) => setSearchInput(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    onSearchSubmit()
+                  }
                 }}
               />
-              {searchQuery && (
-                <button
-                  onClick={() => setSearchQuery('')}
-                  className="mr-2 p-1 hover:bg-white/10 rounded-full transition-colors"
-                >
+              {searchInput && (
+                <button onClick={() => setSearchInput('')} className="mr-2 p-1 hover:bg-white/10 rounded-full transition-colors">
                   <X className="w-4 h-4 text-slate-400" />
                 </button>
               )}
-              <Button className="font-headline font-bold uppercase tracking-widest px-8 py-3 rounded-lg hover:scale-105 active:scale-95 transition-all">
+              <Button
+                className="font-headline font-bold uppercase tracking-widest px-8 py-3 rounded-lg hover:scale-105 active:scale-95 transition-all"
+                onClick={onSearchSubmit}
+              >
                 Search
               </Button>
             </div>
@@ -175,142 +136,94 @@ export default function Search() {
         </div>
 
         <div className="flex flex-col md:flex-row gap-10">
-          {/* Filter Sidebar */}
-          <aside className="w-full md:w-72 shrink-0 space-y-8">
-            <FilterSection 
-              title="Filters" 
-              onReset={resetFilters}
-              activeFiltersCount={activeFiltersCount}
-            >
-              {/* Categories */}
-              <FilterCategory label="Categorie">
-                {CATEGORIE.map((cat) => (
-                  <FilterOption
-                    key={cat.key}
-                    label={cat.label}
-                    checked={selectedCategories.includes(cat.key)}
-                    onChange={() => toggleCategory(cat.key)}
-                  />
-                ))}
-              </FilterCategory>
+          <aside className="w-full md:w-72 shrink-0 space-y-6">
+            <div className="rounded-xl border border-white/10 p-5 bg-slate-900/70 space-y-5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-sm uppercase tracking-widest text-slate-400">Filters</h3>
+                <button className="text-xs text-primary hover:underline" onClick={resetFilters}>
+                  Reset
+                </button>
+              </div>
 
-              {/* Date Range */}
-              <FilterCategory label="Timeframe">
-                <div className="grid grid-cols-2 gap-2">
-                  {TIMEFRAMES.slice(0, 2).map((tf) => (
-                    <button
-                      key={tf.key}
-                      onClick={() => setSelectedTimeframe(selectedTimeframe === tf.key ? '' : tf.key)}
-                      className={`text-[10px] py-2 border rounded font-headline font-semibold uppercase tracking-tighter transition-all ${
-                        selectedTimeframe === tf.key
-                          ? 'border-primary/50 bg-primary/10 text-primary'
-                          : 'border-white/10 bg-white/5 hover:border-white/30'
-                      }`}
-                    >
-                      {tf.label}
-                    </button>
+              <div>
+                <label className="block text-xs uppercase tracking-widest text-slate-400 mb-2">Category</label>
+                <select
+                  value={selectedCategory}
+                  onChange={(event) => {
+                    setSelectedCategory(event.target.value)
+                    setCurrentPage(1)
+                    const nextParams = new URLSearchParams(urlParams)
+                    const nextCategory = event.target.value
+                    if (nextCategory !== 'all') nextParams.set('category', nextCategory)
+                    else nextParams.delete('category')
+                    setUrlParams(nextParams, { replace: true })
+                  }}
+                  className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2"
+                >
+                  {categories.map((category) => (
+                    <option key={category} value={category}>
+                      {category === 'all' ? 'All categories' : category}
+                    </option>
                   ))}
-                  <button className="text-[10px] py-2 border border-white/10 rounded bg-white/5 font-headline font-semibold uppercase tracking-tighter col-span-2 hover:border-white/30 transition-all">
-                    <Calendar className="w-3 h-3 inline mr-2" />
-                    Select Date
-                  </button>
-                </div>
-              </FilterCategory>
+                </select>
+              </div>
 
-              {/* Price Slider */}
-              <FilterCategory label="Price Range">
-                <div className="relative h-2 bg-slate-700 rounded-full mb-6">
-                  <div 
-                    className="absolute h-full bg-gradient-to-r from-primary to-secondary rounded-full"
-                    style={{
-                      left: `${(priceRange[0] / 450) * 100}%`,
-                      right: `${100 - (priceRange[1] / 450) * 100}%`
-                    }}
-                  />
-                  <input
-                    type="range"
-                    min="0"
-                    max="450"
-                    value={priceRange[0]}
-                    onChange={(e) => handlePriceChange(0, parseInt(e.target.value))}
-                    className="absolute inset-0 w-full h-full opacity-0 cursor-pointer"
-                    style={{ pointerEvents: 'auto' }}
-                  />
-                  <div 
-                    className="absolute top-1/2 -translate-y-1/2 w-5 h-5 bg-primary border-2 border-white rounded-full cursor-pointer shadow-lg hover:scale-110 transition-transform"
-                    style={{ left: `calc(${(priceRange[0] / 450) * 100}% - 10px)` }}
-                  />
-                  <div 
-                    className="absolute top-1/2 -translate-y-1/2 w-5 h-5 bg-primary border-2 border-white rounded-full cursor-pointer shadow-lg hover:scale-110 transition-transform"
-                    style={{ right: `calc(${100 - (priceRange[1] / 450) * 100}% - 10px)` }}
-                  />
-                </div>
-                <div className="flex justify-between items-center text-xs font-headline font-medium">
-                  <div className="flex items-center gap-1">
-                    <DollarSign className="w-3 h-3 text-slate-400" />
-                    <span>${priceRange[0]}</span>
-                  </div>
-                  <div className="flex items-center gap-1">
-                    <span>${priceRange[1]}+</span>
-                    <DollarSign className="w-3 h-3 text-slate-400" />
-                  </div>
-                </div>
-              </FilterCategory>
-
-              {/* Venue */}
-              <FilterCategory label="Venue">
+              <div>
+                <label className="block text-xs uppercase tracking-widest text-slate-400 mb-2">Venue</label>
                 <div className="relative">
-                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+                  <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500" />
                   <select
                     value={selectedVenue}
-                    onChange={(e) => {
-                      setSelectedVenue(e.target.value)
+                    onChange={(event) => {
+                      setSelectedVenue(event.target.value)
                       setCurrentPage(1)
                     }}
-                    className="w-full bg-slate-800 border border-white/10 rounded-lg text-sm p-3 pl-10 focus:ring-2 focus:ring-primary focus:border-transparent appearance-none cursor-pointer hover:border-white/30 transition-colors"
+                    className="w-full bg-slate-800 border border-white/10 rounded-lg px-9 py-2"
                   >
-                    {VENUES.map((venue) => (
+                    {venues.map((venue) => (
                       <option key={venue} value={venue}>
-                        {venue}
+                        {venue === 'all' ? 'All venues' : venue}
                       </option>
                     ))}
                   </select>
-                  <ChevronRight className="absolute right-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400 rotate-90 pointer-events-none" />
                 </div>
-              </FilterCategory>
-            </FilterSection>
-
-            {/* Golden Pass Card */}
-            <div className="glass-panel p-6 rounded-xl relative overflow-hidden border border-white/10 bg-gradient-to-br from-yellow-500/10 to-orange-500/10">
-              <div className="relative z-10">
-                <p className="text-yellow-400 font-headline font-black text-xl mb-2">GOLDEN PASS</p>
-                <p className="text-xs text-slate-300 mb-4">Access to all venue VIP lounges for one monthly price.</p>
-                <button className="text-[10px] font-headline font-bold tracking-widest uppercase border border-yellow-400 text-yellow-400 px-4 py-2 rounded hover:bg-yellow-400 hover:text-slate-900 transition-all">
-                  Learn More
-                </button>
               </div>
-              <div className="absolute -right-4 -bottom-4 w-24 h-24 bg-yellow-400/10 rounded-full blur-2xl" />
+
+              <div>
+                <label className="block text-xs uppercase tracking-widest text-slate-400 mb-2">Price Range</label>
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 text-sm text-slate-300">
+                    <DollarSign className="w-4 h-4 text-slate-500" />
+                    <span>
+                      ${priceRange[0]} - ${priceRange[1]}
+                    </span>
+                  </div>
+                  <input
+                    type="range"
+                    min={0}
+                    max={1000}
+                    value={priceRange[1]}
+                    onChange={(event) => {
+                      setPriceRange([0, Number(event.target.value)])
+                      setCurrentPage(1)
+                    }}
+                    className="w-full"
+                  />
+                </div>
+              </div>
             </div>
           </aside>
 
-          {/* Results Grid */}
           <div className="flex-1">
-            <div className="flex items-center justify-between mb-8">
-              <div className="flex items-baseline gap-3">
-                <h2 className="text-2xl font-headline font-bold">
-                  Found {filteredResults.length} events
-                </h2>
-                {searchQuery && (
-                  <span className="text-sm text-slate-400 italic">
-                    for "{searchQuery}"
-                  </span>
-                )}
+            <div className="flex items-center justify-between mb-8 gap-4">
+              <div className="flex items-baseline gap-3 flex-wrap">
+                <h2 className="text-2xl font-headline font-bold">Found {filteredResults.length} events</h2>
+                {searchQuery && <span className="text-sm text-slate-400 italic">for "{searchQuery}"</span>}
                 {activeFiltersCount > 0 && (
-                  <span className="text-xs px-2 py-1 bg-primary/20 text-primary rounded-full">
-                    {activeFiltersCount} filter{activeFiltersCount > 1 ? 's' : ''} active
-                  </span>
+                  <span className="text-xs px-2 py-1 bg-primary/20 text-primary rounded-full">{activeFiltersCount} active filters</span>
                 )}
               </div>
+
               <div className="flex items-center gap-2">
                 <span className="text-xs font-headline font-bold uppercase tracking-widest text-slate-500">
                   <SlidersHorizontal className="w-4 h-4 inline mr-1" />
@@ -318,46 +231,35 @@ export default function Search() {
                 </span>
                 <select
                   value={sortBy}
-                  onChange={(e) => setSortBy(e.target.value)}
-                  className="text-sm font-semibold bg-slate-800 border border-white/10 rounded-lg px-3 py-2 focus:ring-2 focus:ring-primary focus:border-transparent cursor-pointer hover:border-white/30 transition-colors"
+                  onChange={(event) => setSortBy(event.target.value as 'recommended' | 'date' | 'title')}
+                  className="text-sm font-semibold bg-slate-800 border border-white/10 rounded-lg px-3 py-2"
                 >
                   <option value="recommended">Recommended</option>
                   <option value="date">Date</option>
-                  <option value="price-low">Price: Low to High</option>
-                  <option value="price-high">Price: High to Low</option>
+                  <option value="title">Title</option>
                 </select>
               </div>
             </div>
 
-            {/* Results Grid */}
-            {paginatedResults.length > 0 ? (
+            {isLoading ? (
+              <div className="text-center py-20 text-slate-400">Loading events...</div>
+            ) : error ? (
+              <div className="text-center py-20">
+                <p className="text-red-400 mb-4">{error}</p>
+                <Button onClick={onSearchSubmit}>Retry</Button>
+              </div>
+            ) : paginatedResults.length > 0 ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                {/* Featured Large Card */}
-                {paginatedResults[0]?.isFeatured && currentPage === 1 && (
-                  <EventCard
-                    variant="featured"
-                    image={paginatedResults[0].image}
-                    title={paginatedResults[0].title}
-                    date={paginatedResults[0].date}
-                    venue={paginatedResults[0].venue}
-                    price={paginatedResults[0].price}
-                    badge={paginatedResults[0].badge}
-                    href={`/event/${paginatedResults[0].id}`}
-                    className="md:col-span-2 lg:col-span-2"
-                  />
-                )}
-
-                {/* Regular Cards */}
-                {paginatedResults.slice(paginatedResults[0]?.isFeatured && currentPage === 1 ? 1 : 0).map((event) => (
+                {paginatedResults.map((event) => (
                   <EventCard
                     key={event.id}
-                    image={event.image}
+                    image={event.cover_image_url || FALLBACK_IMAGE}
                     title={event.title}
-                    date={event.date}
+                    date={formatDate(event.start_at)}
                     venue={event.venue}
-                    price={event.price}
-                    badge={event.badge}
-                    href={`/event/${event.id}`}
+                    price="See Seats"
+                    badge={event.category}
+                    href={`/event/${event.slug || event.id}`}
                   />
                 ))}
               </div>
@@ -374,53 +276,44 @@ export default function Search() {
               </div>
             )}
 
-            {/* Pagination */}
             {totalPages > 1 && (
               <div className="mt-16 flex items-center justify-center gap-2">
                 <button
-                  onClick={() => setCurrentPage(prev => Math.max(1, prev - 1))}
+                  onClick={() => setCurrentPage((prev) => Math.max(1, prev - 1))}
                   disabled={currentPage === 1}
-                  className="w-10 h-10 flex items-center justify-center rounded-lg bg-slate-800 text-slate-400 hover:bg-primary-container hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-10 h-10 flex items-center justify-center rounded-lg bg-slate-800 text-slate-400 hover:bg-primary-container hover:text-white transition-all disabled:opacity-50"
                 >
                   <ChevronLeft className="w-5 h-5" />
                 </button>
-                
-                {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                  let pageNum
-                  if (totalPages <= 5) {
-                    pageNum = i + 1
-                  } else if (currentPage <= 3) {
-                    pageNum = i + 1
-                  } else if (currentPage >= totalPages - 2) {
-                    pageNum = totalPages - 4 + i
-                  } else {
-                    pageNum = currentPage - 2 + i
-                  }
-                  
-                  return (
+
+                {Array.from({ length: totalPages }, (_, index) => index + 1)
+                  .slice(0, 7)
+                  .map((page) => (
                     <button
-                      key={pageNum}
-                      onClick={() => setCurrentPage(pageNum)}
+                      key={page}
+                      onClick={() => setCurrentPage(page)}
                       className={`w-10 h-10 flex items-center justify-center rounded-lg font-headline font-bold transition-all ${
-                        currentPage === pageNum
-                          ? 'bg-primary text-white'
-                          : 'bg-slate-800 text-slate-400 hover:text-white'
+                        currentPage === page ? 'bg-primary text-white' : 'bg-slate-800 text-slate-400 hover:text-white'
                       }`}
                     >
-                      {pageNum}
+                      {page}
                     </button>
-                  )
-                })}
-                
+                  ))}
+
                 <button
-                  onClick={() => setCurrentPage(prev => Math.min(totalPages, prev + 1))}
+                  onClick={() => setCurrentPage((prev) => Math.min(totalPages, prev + 1))}
                   disabled={currentPage === totalPages}
-                  className="w-10 h-10 flex items-center justify-center rounded-lg bg-slate-800 text-slate-400 hover:bg-primary-container hover:text-white transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-10 h-10 flex items-center justify-center rounded-lg bg-slate-800 text-slate-400 hover:bg-primary-container hover:text-white transition-all disabled:opacity-50"
                 >
                   <ChevronRight className="w-5 h-5" />
                 </button>
               </div>
             )}
+
+            <div className="mt-8 text-slate-500 text-xs flex items-center gap-2 uppercase tracking-wider">
+              <Calendar className="w-4 h-4" />
+              Times shown in your local timezone
+            </div>
           </div>
         </div>
       </main>

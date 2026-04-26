@@ -1,104 +1,150 @@
-import { createContext, useContext, useState, useEffect, useMemo } from 'react';
-import type { ReactNode } from 'react';
+import { createContext, useContext, useEffect, useMemo, useState } from 'react'
+import type { ReactNode } from 'react'
 
-// Định nghĩa kiểu dữ liệu cho User
-export interface User {
-  id: string;
-  email: string;
-  name: string;
-  avatar?: string;
-  role: 'customer' | 'admin';
+import { authApi, extractApiErrorMessage } from '@/lib/api'
+import { authStorage } from '@/lib/storage'
+import type { User as ApiUser } from '@/types'
+
+export interface User extends ApiUser {
+  name: string
+  avatar?: string
 }
 
-// 1. Thêm 'register' vào interface này
 interface AuthContextType {
-  user: User | null;
-  isLoading: boolean;
-  isAuthenticated: boolean;
-  login: (email: string, password: string) => Promise<void>;
-  register: (email: string, password: string, fullName: string) => Promise<void>; // Thêm dòng này
-  logout: () => void;
+  user: User | null
+  isLoading: boolean
+  isAuthenticated: boolean
+  isAdmin: boolean
+  login: (email: string, password: string) => Promise<User>
+  register: (
+    email: string,
+    password: string,
+    fullName: string,
+    options?: { gender?: 'male' | 'female' | 'other'; age?: number },
+  ) => Promise<User>
+  updateProfile: (payload: { full_name: string; gender: 'male' | 'female' | 'other'; age: number }) => Promise<User>
+  logout: () => void
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType | undefined>(undefined)
+
+function enrichUser(user: ApiUser): User {
+  return {
+    ...user,
+    name: user.full_name,
+  }
+}
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(true)
+  const [user, setUser] = useState<User | null>(() => {
+    const storedUser = authStorage.getUser()
+    return storedUser ? enrichUser(storedUser) : null
+  })
 
-  const isAuthenticated = !!user;
+  const isAuthenticated = Boolean(user && authStorage.getToken())
+  const isAdmin = user?.role === 'admin'
 
-  // Kiểm tra user đã đăng nhập chưa khi load trang
   useEffect(() => {
-    const storedUser = localStorage.getItem('ticketrush_user');
-    if (storedUser) {
-      setUser(JSON.parse(storedUser));
+    const bootstrap = async () => {
+      const token = authStorage.getToken()
+      if (!token) {
+        setIsLoading(false)
+        return
+      }
+
+      try {
+        const profile = await authApi.me()
+        authStorage.setUser(profile)
+        setUser(enrichUser(profile))
+      } catch {
+        authStorage.clearAll()
+        setUser(null)
+      } finally {
+        setIsLoading(false)
+      }
     }
-    setIsLoading(false);
-  }, []);
+
+    void bootstrap()
+  }, [])
 
   const login = async (email: string, password: string) => {
-    setIsLoading(true);
+    setIsLoading(true)
     try {
-      // TODO: Gọi API đăng nhập thật
-      // Mock data đăng nhập thành công
-      const mockUser: User = { id: '1', email, name: 'Alex Voyager', role: 'customer' };
-      setUser(mockUser);
-      localStorage.setItem('ticketrush_user', JSON.stringify(mockUser));
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
-  // 2. Thêm hàm register vào đây
-  const register = async (email: string, password: string, fullName: string) => {
-    setIsLoading(true);
-    try {
-      // TODO: Gọi API đăng ký thật ở đây
-      // await axios.post('/api/auth/register', { email, password, fullName });
-      
-      // Giả lập delay mạng
-      await new Promise((resolve) => setTimeout(resolve, 1500));
-
-      // Nếu đăng ký thành công, tự động đăng nhập
-      const newUser: User = { id: '2', email, name: fullName, role: 'customer' };
-      setUser(newUser);
-      localStorage.setItem('ticketrush_user', JSON.stringify(newUser));
-      
-      alert('Account created successfully!');
+      const response = await authApi.login(email, password)
+      authStorage.setToken(response.access_token)
+      authStorage.setUser(response.user)
+      const enrichedUser = enrichUser(response.user)
+      setUser(enrichedUser)
+      return enrichedUser
     } catch (error) {
-      alert('Registration failed. Please try again.');
-      throw error;
+      throw new Error(extractApiErrorMessage(error, 'Login failed. Please try again.'))
     } finally {
-      setIsLoading(false);
+      setIsLoading(false)
     }
-  };
+  }
+
+  const register = async (
+    email: string,
+    password: string,
+    fullName: string,
+    options?: { gender?: 'male' | 'female' | 'other'; age?: number },
+  ) => {
+    setIsLoading(true)
+    try {
+      const response = await authApi.register({
+        full_name: fullName,
+        email,
+        password,
+        gender: options?.gender ?? 'other',
+        age: options?.age ?? 18,
+      })
+      authStorage.setToken(response.access_token)
+      authStorage.setUser(response.user)
+      const enrichedUser = enrichUser(response.user)
+      setUser(enrichedUser)
+      return enrichedUser
+    } catch (error) {
+      throw new Error(extractApiErrorMessage(error, 'Registration failed. Please try again.'))
+    } finally {
+      setIsLoading(false)
+    }
+  }
 
   const logout = () => {
-    setUser(null);
-    localStorage.removeItem('ticketrush_user');
-    window.location.href = '/';
-  };
+    authStorage.clearAll()
+    setUser(null)
+  }
 
-  const value = useMemo(() => ({
-    user,
-    isAuthenticated,  // ✅ Truyền vào value
-    login,
-    logout,
-    register,
-  }), [user, isAuthenticated]);
+  const updateProfile = async (payload: { full_name: string; gender: 'male' | 'female' | 'other'; age: number }) => {
+    const profile = await authApi.updateMe(payload)
+    const enrichedUser = enrichUser(profile)
+    authStorage.setUser(profile)
+    setUser(enrichedUser)
+    return enrichedUser
+  }
 
-  return (
-    <AuthContext.Provider value={{ user, isLoading, login, register, logout, isAuthenticated }}>
-      {children}
-    </AuthContext.Provider>
-  );
+  const value = useMemo(
+    () => ({
+      user,
+      isLoading,
+      isAuthenticated,
+      isAdmin,
+      login,
+      register,
+      updateProfile,
+      logout,
+    }),
+    [user, isLoading, isAuthenticated, isAdmin, updateProfile],
+  )
+
+  return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>
 }
 
 export function useAuth() {
-  const context = useContext(AuthContext);
+  const context = useContext(AuthContext)
   if (context === undefined) {
-    throw new Error('useAuth must be used within an AuthProvider');
+    throw new Error('useAuth must be used within an AuthProvider')
   }
-  return context;
+  return context
 }

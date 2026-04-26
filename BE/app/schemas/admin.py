@@ -73,3 +73,56 @@ class EventDetailStatsResponse(BaseModel):
     canceled_tickets: int
     total_revenue: float
     zone_stats: list[EventZoneStatsResponse]
+
+
+class AdminUserResponse(BaseModel):
+    """User row for admin management screen."""
+
+    id: int
+    full_name: str
+    email: str
+    role: str
+    gender: str
+    age: int
+    total_tickets: int
+    registered_at: str
+
+
+class AdminTicketSaleResponse(BaseModel):
+    """Recent ticket sale row shown on admin ticket table."""
+
+    id: int
+    event_title: str
+    customer_name: str
+    seat_label: str
+    zone_name: str
+    price: float
+    purchased_at: str
+    order_status: str
+
+
+class AdminEventRevenueResponse(BaseModel):
+    """Per-event revenue aggregate used in admin ticket analytics."""
+
+    event_id: int
+    event_title: str
+    tickets_sold: int
+    revenue: float
+
+
+class PaginatedAdminUsersResponse(BaseModel):
+    """Paginated payload for admin users table."""
+
+    items: list[AdminUserResponse]
+    total: int
+    limit: int
+    offset: int
+
+
+class PaginatedAdminTicketSalesResponse(BaseModel):
+    """Paginated payload for admin ticket sales table."""
+
+    items: list[AdminTicketSaleResponse]
+    total: int
+    limit: int
+    offset: int
