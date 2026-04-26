@@ -37,16 +37,16 @@ export function Modal({ isOpen, onClose, title, children, className }: ModalProp
       aria-modal="true"
       aria-labelledby={title ? 'modal-title' : undefined}
     >
-      <div className={cn('w-full max-w-lg bg-space-800 border border-white/10 rounded-xl shadow-2xl animate-in zoom-in-95 duration-200', className)}>
+      <div className={cn('w-full max-w-lg bg-space-800 border border-white/10 rounded-xl shadow-2xl animate-in zoom-in-95 duration-200 max-h-[90vh] flex flex-col', className)}>
         {title && (
-          <div className="flex items-center justify-between p-4 border-b border-white/10">
+          <div className="flex items-center justify-between p-4 border-b border-white/10 shrink-0">
             <h2 id="modal-title" className="text-lg font-display font-semibold text-white">{title}</h2>
             <button onClick={onClose} className="p-1 rounded-lg hover:bg-white/10 transition-colors" aria-label="Close modal">
               <X className="h-5 w-5 text-gray-400" />
             </button>
           </div>
         )}
-        <div className="p-4">{children}</div>
+        <div className="p-4 overflow-y-auto">{children}</div>
       </div>
     </div>,
     document.body

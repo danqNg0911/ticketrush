@@ -319,11 +319,11 @@ export default function AdminEvents() {
       >
         <div className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Ten su kien</label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Tên sự kiện</label>
             <Input value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-300 mb-2">Mo ta</label>
+            <label className="block text-sm font-medium text-gray-300 mb-2">Mô tả</label>
             <textarea
               className="w-full rounded-lg border bg-space-700/50 border-white/20 px-4 py-2.5 text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-red"
               rows={3}
@@ -333,17 +333,17 @@ export default function AdminEvents() {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Category</label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Loại sự kiện</label>
               <Input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Venue</label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Địa điểm</label>
               <Input value={form.venue} onChange={(event) => setForm({ ...form, venue: event.target.value })} />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Start at</label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Thời điểm bắt đầu</label>
               <Input
                 type="datetime-local"
                 value={form.start_at}
@@ -351,7 +351,7 @@ export default function AdminEvents() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">End at</label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Thời điểm kết thúc</label>
               <Input
                 type="datetime-local"
                 value={form.end_at}
@@ -361,7 +361,7 @@ export default function AdminEvents() {
           </div>
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Status</label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Trạng thái</label>
               <select
                 className="w-full rounded-lg border bg-space-700/50 border-white/20 px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-red"
                 value={form.status}
@@ -373,7 +373,7 @@ export default function AdminEvents() {
               </select>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Queue</label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Hàng đợi</label>
               <select
                 className="w-full rounded-lg border bg-space-700/50 border-white/20 px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-red"
                 value={form.queue_enabled ? 'true' : 'false'}
@@ -387,7 +387,7 @@ export default function AdminEvents() {
 
           <div className="grid grid-cols-3 gap-4">
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Hold (min)</label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Thời gian giữ (Phút)</label>
               <Input
                 type="number"
                 min={1}
@@ -405,7 +405,7 @@ export default function AdminEvents() {
               />
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-300 mb-2">Max queue</label>
+              <label className="block text-sm font-medium text-gray-300 mb-2">Hàng đợi tối đa</label>
               <Input
                 type="number"
                 min={1}
@@ -418,20 +418,20 @@ export default function AdminEvents() {
           {!editingEvent && (
             <>
               <div className="pt-3 border-t border-white/10">
-                <p className="text-sm text-gray-300 mb-3">Zone khoi tao (bat buoc khi tao moi)</p>
+                <p className="text-sm text-gray-300 mb-3">Zone khởi tạo (Bắt buộc khi tạo mới)</p>
                 <div className="grid grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">Zone code</label>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Mã Zone</label>
                     <Input value={form.zone_code} onChange={(event) => setForm({ ...form, zone_code: event.target.value })} />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">Zone name</label>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Tên Zone </label>
                     <Input value={form.zone_name} onChange={(event) => setForm({ ...form, zone_name: event.target.value })} />
                   </div>
                 </div>
                 <div className="grid grid-cols-3 gap-4 mt-4">
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">Rows</label>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Số hàng</label>
                     <Input
                       type="number"
                       min={1}
@@ -440,7 +440,7 @@ export default function AdminEvents() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">Seats/row</label>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Số ghế/ Hàng</label>
                     <Input
                       type="number"
                       min={1}
@@ -449,7 +449,7 @@ export default function AdminEvents() {
                     />
                   </div>
                   <div>
-                    <label className="block text-sm font-medium text-gray-300 mb-2">Price</label>
+                    <label className="block text-sm font-medium text-gray-300 mb-2">Giá</label>
                     <Input
                       type="number"
                       min={1}
@@ -459,7 +459,7 @@ export default function AdminEvents() {
                   </div>
                 </div>
                 <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Zone color</label>
+                  <label className="block text-sm font-medium text-gray-300 mb-2">Màu Zone</label>
                   <Input value={form.zone_color} onChange={(event) => setForm({ ...form, zone_color: event.target.value })} />
                 </div>
               </div>
@@ -468,7 +468,7 @@ export default function AdminEvents() {
 
           <div className="flex justify-end gap-3 pt-2">
             <Button variant="ghost" onClick={() => setIsModalOpen(false)}>
-              Huy
+              Hủy
             </Button>
             <Button variant="primary" onClick={() => void handleSubmit()} isLoading={saving}>
               {editingEvent ? 'Cap nhat' : 'Tao moi'}
