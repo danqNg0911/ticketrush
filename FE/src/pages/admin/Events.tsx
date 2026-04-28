@@ -677,10 +677,6 @@ export default function AdminEvents() {
                   placeholder="#024ddf"
                   className="flex-1"
                 />
-                <div
-                  className="w-8 h-8 rounded border border-white/20 shadow-inner transition-colors"
-                  style={{ backgroundColor: zoneForm.color || '#000000' }}
-                />
               </div>
             </div>
           </div>
