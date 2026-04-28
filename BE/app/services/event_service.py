@@ -16,7 +16,6 @@ from app.models.seat import Seat
 from app.models.user import User
 from app.schemas.event import EventCreateRequest, SeatPurchaseInfoResponse, SeatResponse, SeatUserInfoResponse, SeatZoneCreate, SeatZoneResponse
 
-
 def slugify(text: str) -> str:
     """Generate URL-friendly slug from title."""
 
@@ -161,6 +160,7 @@ async def create_event_zone(session: AsyncSession, event: Event, payload: SeatZo
     await session.flush()
 
     session.add_all(_build_zone_seats(event.id, zone, payload))
+
     await session.flush()
     return zone
 
@@ -193,7 +193,7 @@ async def update_event_zone(session: AsyncSession, event: Event, zone_id: int, p
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Cannot update zone while it has sold/locked seats",
         )
-
+    
     zone.code = payload.code
     zone.name = payload.name
     zone.row_count = payload.row_count
@@ -201,12 +201,14 @@ async def update_event_zone(session: AsyncSession, event: Event, zone_id: int, p
     zone.price = payload.price
     zone.color = payload.color
 
+
     existing_seats = list(await session.scalars(select(Seat).where(Seat.zone_id == zone.id)))
     for seat in existing_seats:
         await session.delete(seat)
     await session.flush()
 
     session.add_all(_build_zone_seats(event.id, zone, payload))
+
     await session.flush()
     return zone
 
