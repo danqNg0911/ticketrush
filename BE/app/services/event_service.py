@@ -18,7 +18,9 @@ from app.schemas.event import (
     EventCreateRequest,
     SeatPurchaseInfoResponse,
     SeatResponse,
+    SeatZoneCreate,
     SeatUserInfoResponse,
+    SeatZoneUpdate,
     SeatZoneResponse,
 )
 
@@ -129,6 +131,148 @@ async def create_event_with_matrix(session: AsyncSession, admin_id: int, payload
     session.add_all(seat_models)
     await session.flush()
     return event
+
+
+async def _ensure_zone_code_available(session: AsyncSession, event_id: int, code: str, exclude_zone_id: int | None = None) -> None:
+    """Prevent duplicate zone codes because seat labels include the zone code."""
+
+    stmt = select(func.count(SeatZone.id)).where(SeatZone.event_id == event_id, SeatZone.code == code)
+    if exclude_zone_id is not None:
+        stmt = stmt.where(SeatZone.id != exclude_zone_id)
+
+    existing = int(await session.scalar(stmt) or 0)
+    if existing:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="Zone code already exists for this event")
+
+
+def _build_seat(event_id: int, zone_id: int, zone_code: str, row_index: int, seat_number: int, price: Decimal) -> Seat:
+    """Create one generated seat from zone matrix coordinates."""
+
+    row_label = row_label_from_index(row_index)
+    return Seat(
+        event_id=event_id,
+        zone_id=zone_id,
+        row_index=row_index,
+        row_label=row_label,
+        seat_number=seat_number,
+        seat_label=f"{zone_code}-{row_label}{seat_number}",
+        price=price,
+        status=SeatStatus.AVAILABLE,
+    )
+
+
+async def create_zone_with_matrix(session: AsyncSession, event: Event, payload: SeatZoneCreate) -> SeatZone:
+    """Create one zone and generate its seats for an existing event."""
+
+    await _ensure_zone_code_available(session, event.id, payload.code)
+
+    zone = SeatZone(
+        event_id=event.id,
+        code=payload.code,
+        name=payload.name,
+        row_count=payload.row_count,
+        seats_per_row=payload.seats_per_row,
+        price=payload.price,
+        color=payload.color,
+    )
+    session.add(zone)
+    await session.flush()
+
+    session.add_all(
+        [
+            _build_seat(event.id, zone.id, payload.code, row_index, seat_number, payload.price)
+            for row_index in range(1, payload.row_count + 1)
+            for seat_number in range(1, payload.seats_per_row + 1)
+        ]
+    )
+    await session.flush()
+    return zone
+
+
+async def update_zone_matrix(session: AsyncSession, event: Event, zone_id: int, payload: SeatZoneUpdate) -> SeatZone:
+    """Update zone config and reconcile generated seats without deleting held/sold seats."""
+
+    zone = await session.scalar(select(SeatZone).where(SeatZone.event_id == event.id, SeatZone.id == zone_id))
+    if not zone:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Zone not found")
+
+    await _ensure_zone_code_available(session, event.id, payload.code, exclude_zone_id=zone_id)
+
+    seats = list(
+        await session.scalars(
+            select(Seat)
+            .where(Seat.event_id == event.id, Seat.zone_id == zone_id)
+            .with_for_update()
+            .order_by(Seat.row_index.asc(), Seat.seat_number.asc())
+        )
+    )
+
+    removable: list[Seat] = []
+    existing_positions: set[tuple[int, int]] = set()
+    for seat in seats:
+        inside_next_matrix = seat.row_index <= payload.row_count and seat.seat_number <= payload.seats_per_row
+        if not inside_next_matrix:
+            if seat.status != SeatStatus.AVAILABLE:
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Cannot shrink zone while removed seats are locked or sold",
+                )
+            removable.append(seat)
+            continue
+
+        existing_positions.add((seat.row_index, seat.seat_number))
+        seat.price = payload.price
+        seat.row_label = row_label_from_index(seat.row_index)
+        seat.seat_label = f"{payload.code}-{seat.row_label}{seat.seat_number}"
+
+    for seat in removable:
+        await session.delete(seat)
+
+    new_seats = [
+        _build_seat(event.id, zone.id, payload.code, row_index, seat_number, payload.price)
+        for row_index in range(1, payload.row_count + 1)
+        for seat_number in range(1, payload.seats_per_row + 1)
+        if (row_index, seat_number) not in existing_positions
+    ]
+    if new_seats:
+        session.add_all(new_seats)
+
+    zone.code = payload.code
+    zone.name = payload.name
+    zone.row_count = payload.row_count
+    zone.seats_per_row = payload.seats_per_row
+    zone.price = payload.price
+    zone.color = payload.color
+
+    await session.flush()
+    return zone
+
+
+async def delete_zone_matrix(session: AsyncSession, event: Event, zone_id: int) -> None:
+    """Delete one zone only if it has no locked/sold seats."""
+
+    zone = await session.scalar(select(SeatZone).where(SeatZone.event_id == event.id, SeatZone.id == zone_id))
+    if not zone:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Zone not found")
+
+    unavailable_count = int(
+        await session.scalar(
+            select(func.count(Seat.id)).where(
+                Seat.event_id == event.id,
+                Seat.zone_id == zone_id,
+                Seat.status != SeatStatus.AVAILABLE,
+            )
+        )
+        or 0
+    )
+    if unavailable_count:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot delete a zone with locked or sold seats")
+
+    seats = list(await session.scalars(select(Seat).where(Seat.event_id == event.id, Seat.zone_id == zone_id).with_for_update()))
+    for seat in seats:
+        await session.delete(seat)
+    await session.delete(zone)
+    await session.flush()
 
 
 async def list_live_events(

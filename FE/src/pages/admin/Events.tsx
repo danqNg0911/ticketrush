@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
 import { adminApi, extractApiErrorMessage } from '@/lib/api'
 import type { EventCard, EventStatus, SeatZone } from '@/types'
-import { Calendar, Clock, Edit, Filter, MapPin, Search, Trash2, Users, LayoutGrid, Palette, Plus, Check, Loader2 } from 'lucide-react'
+import { Calendar, Edit, Filter, MapPin, Search, Trash2, Users, LayoutGrid, Palette, Plus, Check, Loader2 } from 'lucide-react'
 import { Listbox } from '@headlessui/react';
 
 interface EventFormState {
@@ -698,7 +698,6 @@ export default function AdminEvents() {
     </div>
   )
 }
-
 
 
 

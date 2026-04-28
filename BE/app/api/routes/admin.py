@@ -32,9 +32,25 @@ from app.schemas.admin import (
     UploadImageResponse,
 )
 from app.schemas.common import APIMessage
-from app.schemas.event import EventCardResponse, EventCreateRequest, EventDetailResponse, EventOccupancyResponse, EventUpdateRequest
+from app.schemas.event import (
+    EventCardResponse,
+    EventCreateRequest,
+    EventDetailResponse,
+    EventOccupancyResponse,
+    EventUpdateRequest,
+    SeatZoneCreate,
+    SeatZoneResponse,
+    SeatZoneUpdate,
+)
 from app.services.dashboard_service import get_audience_distribution, get_dashboard_summary, get_revenue_series
-from app.services.event_service import create_event_with_matrix, get_event_by_slug_or_id, get_event_seat_matrix
+from app.services.event_service import (
+    create_event_with_matrix,
+    create_zone_with_matrix,
+    delete_zone_matrix,
+    get_event_by_slug_or_id,
+    get_event_seat_matrix,
+    update_zone_matrix,
+)
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -247,6 +263,88 @@ async def event_stats_detail(
         total_revenue=total_revenue,
         zone_stats=zone_stats,
     )
+
+
+@router.get("/events/{event_key}/zones", response_model=list[SeatZoneResponse])
+async def list_event_zones(
+    event_key: str,
+    session: AsyncSession = Depends(get_db_session),
+    _: User = Depends(get_current_active_admin),
+) -> list[SeatZoneResponse]:
+    """Return seat-zone matrix configuration for one event."""
+
+    event = await get_event_by_slug_or_id(session, event_key)
+    zones, _ = await get_event_seat_matrix(session, event.id)
+    return zones
+
+
+@router.post("/events/{event_key}/zones", response_model=SeatZoneResponse)
+async def create_event_zone(
+    event_key: str,
+    payload: SeatZoneCreate,
+    session: AsyncSession = Depends(get_db_session),
+    _: User = Depends(get_current_active_admin),
+) -> SeatZoneResponse:
+    """Add a new zone and generate its seat matrix."""
+
+    event = await get_event_by_slug_or_id(session, event_key)
+    try:
+        zone = await create_zone_with_matrix(session, event, payload)
+        await session.commit()
+        await session.refresh(zone)
+        await public_api_cache.invalidate_namespace(EVENT_LIST_CACHE_NAMESPACE)
+        await public_api_cache.invalidate_namespace(event_seat_cache_namespace(event.id))
+    except Exception:
+        await session.rollback()
+        raise
+
+    return SeatZoneResponse.model_validate(zone)
+
+
+@router.patch("/events/{event_key}/zones/{zone_id}", response_model=SeatZoneResponse)
+async def update_event_zone(
+    event_key: str,
+    zone_id: int,
+    payload: SeatZoneUpdate,
+    session: AsyncSession = Depends(get_db_session),
+    _: User = Depends(get_current_active_admin),
+) -> SeatZoneResponse:
+    """Update a zone and reconcile generated seats."""
+
+    event = await get_event_by_slug_or_id(session, event_key)
+    try:
+        zone = await update_zone_matrix(session, event, zone_id, payload)
+        await session.commit()
+        await session.refresh(zone)
+        await public_api_cache.invalidate_namespace(EVENT_LIST_CACHE_NAMESPACE)
+        await public_api_cache.invalidate_namespace(event_seat_cache_namespace(event.id))
+    except Exception:
+        await session.rollback()
+        raise
+
+    return SeatZoneResponse.model_validate(zone)
+
+
+@router.delete("/events/{event_key}/zones/{zone_id}", response_model=APIMessage)
+async def delete_event_zone(
+    event_key: str,
+    zone_id: int,
+    session: AsyncSession = Depends(get_db_session),
+    _: User = Depends(get_current_active_admin),
+) -> APIMessage:
+    """Delete one zone when all of its seats are still available."""
+
+    event = await get_event_by_slug_or_id(session, event_key)
+    try:
+        await delete_zone_matrix(session, event, zone_id)
+        await session.commit()
+        await public_api_cache.invalidate_namespace(EVENT_LIST_CACHE_NAMESPACE)
+        await public_api_cache.invalidate_namespace(event_seat_cache_namespace(event.id))
+    except Exception:
+        await session.rollback()
+        raise
+
+    return APIMessage(detail="Zone deleted successfully")
 
 
 @router.get("/events", response_model=list[EventCardResponse])

@@ -61,6 +61,7 @@ async def lock_seats(
             await session.scalars(
                 select(Seat)
                 .where(Seat.event_id == event_id, Seat.id.in_(seat_ids))
+                .order_by(Seat.id.asc())
                 .with_for_update()
             )
         )
@@ -120,6 +121,7 @@ async def release_seats(session: AsyncSession, user_id: int, event_id: int, seat
             await session.scalars(
                 select(Seat)
                 .where(Seat.event_id == event_id, Seat.id.in_(seat_ids))
+                .order_by(Seat.id.asc())
                 .with_for_update()
             )
         )
@@ -178,6 +180,7 @@ async def checkout_locked_seats(
                     Seat.locked_by_user_id == user_id,
                     Seat.status == SeatStatus.LOCKED,
                 )
+                .order_by(Seat.id.asc())
                 .with_for_update()
             )
         )

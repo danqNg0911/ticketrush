@@ -1,20 +1,22 @@
-import { useMemo, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { Footer } from '@/components/layout/Footer'
 import { Navbar } from '@/components/layout/Navbar'
 import { Button } from '@/components/ui/Button'
-import { useLockSeats } from '@/features/booking/hooks/useBooking'
+import { useLockSeats, useReleaseSeats } from '@/features/booking/hooks/useBooking'
 import { useEventSeats } from '@/features/events/hooks/useEvents'
 import { useAuth } from '@/context/AuthContext'
-import { queueStorage } from '@/lib/storage'
+import { useWebSocketHeartbeat } from '@/hooks/useWebSocketHeartbeat'
+import { authStorage, queueStorage } from '@/lib/storage'
+import { WS_BASE_URL } from '@/constants'
 import type { Seat, SeatZone } from '@/types'
 import { AlertCircle, CheckCircle2, Clock3, MapPin, Ticket } from 'lucide-react'
 
-function seatClass(seat: Seat, isSelected: boolean) {
+function seatClass(seat: Seat, isPending: boolean) {
+  if (isPending) return 'bg-cyan-700 text-white border-cyan-400 cursor-wait'
   if (seat.status === 'sold') return 'bg-slate-700 text-slate-500 cursor-not-allowed'
-  if (seat.status === 'locked' && !seat.is_locked_by_me) return 'bg-amber-900/60 text-amber-300 cursor-not-allowed'
-  if (isSelected) return 'bg-primary text-white border-primary'
+  if (seat.status === 'locked' && !seat.is_locked_by_me) return 'bg-slate-700 text-slate-400 cursor-not-allowed'
   if (seat.is_locked_by_me) return 'bg-emerald-700 text-white border-emerald-500'
   return 'bg-slate-800 text-slate-200 hover:bg-slate-700 border-white/10'
 }
@@ -34,59 +36,89 @@ export default function SeatSelection() {
   const navigate = useNavigate()
   const { isAuthenticated } = useAuth()
 
-  const { seats: matrix, isLoading, error, refetch } = useEventSeats(eventKey)
+  const { seats: matrix, isLoading, error, refetch } = useEventSeats(eventKey, { pollIntervalMs: 3000 })
   const { isLoading: isLocking, lockSeats } = useLockSeats()
+  const { isLoading: isReleasing, releaseSeats } = useReleaseSeats()
 
-  const [selectedSeatIds, setSelectedSeatIds] = useState<number[]>([])
+  const [pendingSeatIds, setPendingSeatIds] = useState<number[]>([])
+  const pendingSeatIdsRef = useRef<Set<number>>(new Set())
   const [statusMessage, setStatusMessage] = useState<string>('')
 
   const queueToken = eventKey ? queueStorage.getToken(eventKey) : null
+  const authToken = authStorage.getToken()
+  const wsUrl = eventKey && authToken ? `${WS_BASE_URL}/events/${eventKey}/seats?token=${encodeURIComponent(authToken)}` : null
 
   const seatsByZone = useMemo(() => groupSeatsByZone(matrix?.seats ?? []), [matrix?.seats])
 
-  const selectedSeats = useMemo(
+  const heldSeats = useMemo(
     () =>
-      (matrix?.seats ?? []).filter((seat) => selectedSeatIds.includes(seat.id)).sort((a, b) => a.seat_label.localeCompare(b.seat_label)),
-    [matrix?.seats, selectedSeatIds],
+      (matrix?.seats ?? []).filter((seat) => seat.is_locked_by_me).sort((a, b) => a.seat_label.localeCompare(b.seat_label)),
+    [matrix?.seats],
   )
 
-  const subtotal = selectedSeats.reduce((sum, seat) => sum + Number(seat.price), 0)
+  const subtotal = heldSeats.reduce((sum, seat) => sum + Number(seat.price), 0)
 
-  const toggleSeat = (seat: Seat) => {
+  const handleSeatClick = async (seat: Seat) => {
     if (seat.status === 'sold') return
     if (seat.status === 'locked' && !seat.is_locked_by_me) return
+    if (!matrix) return
+    if (pendingSeatIdsRef.current.has(seat.id)) return
 
-    setSelectedSeatIds((prev) => {
-      if (prev.includes(seat.id)) {
-        return prev.filter((id) => id !== seat.id)
-      }
-      return [...prev, seat.id]
-    })
-  }
-
-  const handleLockSeats = async () => {
-    if (!matrix || selectedSeatIds.length === 0) return
     if (!isAuthenticated) {
       navigate('/login')
       return
     }
 
+    pendingSeatIdsRef.current.add(seat.id)
+    setPendingSeatIds((previous) => [...previous, seat.id])
     try {
-      const response = await lockSeats(matrix.event_id, selectedSeatIds, queueToken ?? undefined)
-      setStatusMessage(response.message)
-      const lockedSeatIds = response.locked_seat_ids ?? []
-      setSelectedSeatIds([])
-      await refetch()
-
-      if (lockedSeatIds.length > 0) {
-        navigate(`/checkout?eventId=${matrix.event_id}&eventKey=${matrix.event_slug}`, {
-          state: { lockedSeatIds },
-        })
+      if (seat.is_locked_by_me) {
+        const message = await releaseSeats(matrix.event_id, [seat.id])
+        setStatusMessage(message)
+      } else {
+        const response = await lockSeats(matrix.event_id, [seat.id], queueToken ?? undefined)
+        if (response.locked_seat_ids.includes(seat.id)) {
+          setStatusMessage(`${seat.seat_label} is held for your checkout.`)
+        } else {
+          setStatusMessage(`${seat.seat_label} was just taken by another customer.`)
+        }
       }
+      await refetch(false)
     } catch (lockError) {
-      setStatusMessage(lockError instanceof Error ? lockError.message : 'Unable to lock seats')
+      setStatusMessage(lockError instanceof Error ? lockError.message : 'Unable to update seat hold')
+    } finally {
+      pendingSeatIdsRef.current.delete(seat.id)
+      setPendingSeatIds((previous) => previous.filter((id) => id !== seat.id))
     }
   }
+
+  const handleCheckout = () => {
+    if (!matrix || heldSeats.length === 0) return
+    if (!isAuthenticated) {
+      navigate('/login')
+      return
+    }
+
+    navigate(`/checkout?eventId=${matrix.event_id}&eventKey=${matrix.event_slug}`, {
+      state: { lockedSeatIds: heldSeats.map((seat) => seat.id) },
+    })
+  }
+
+  const handleSeatUpdates = useCallback(
+    (event: MessageEvent) => {
+      try {
+        const message = JSON.parse(event.data) as { type?: string }
+        if (message.type === 'seat_changes') {
+          void refetch(false)
+        }
+      } catch {
+        // Ignore non-JSON heartbeat responses.
+      }
+    },
+    [refetch],
+  )
+
+  useWebSocketHeartbeat({ url: wsUrl, onMessage: handleSeatUpdates })
 
   if (isLoading) {
     return (
@@ -160,14 +192,14 @@ export default function SeatSelection() {
 
                   <div className="grid grid-cols-6 sm:grid-cols-8 md:grid-cols-10 gap-2">
                     {zoneSeats.map((seat) => {
-                      const isSelected = selectedSeatIds.includes(seat.id)
+                      const isPending = pendingSeatIds.includes(seat.id)
                       return (
                         <button
                           key={seat.id}
                           type="button"
-                          onClick={() => toggleSeat(seat)}
-                          className={`text-xs px-2 py-1.5 rounded border transition-colors ${seatClass(seat, isSelected)}`}
-                          disabled={seat.status === 'sold' || (seat.status === 'locked' && !seat.is_locked_by_me)}
+                          onClick={() => void handleSeatClick(seat)}
+                          className={`text-xs px-2 py-1.5 rounded border transition-colors ${seatClass(seat, isPending)}`}
+                          disabled={isPending || seat.status === 'sold' || (seat.status === 'locked' && !seat.is_locked_by_me)}
                           title={`${seat.seat_label} - $${Number(seat.price).toFixed(2)}`}
                         >
                           {seat.seat_label}
@@ -191,10 +223,10 @@ export default function SeatSelection() {
             </div>
 
             <div className="max-h-56 overflow-auto space-y-2">
-              {selectedSeats.length === 0 ? (
-                <p className="text-sm text-slate-400">No seats selected yet.</p>
+              {heldSeats.length === 0 ? (
+                <p className="text-sm text-slate-400">No held seats yet.</p>
               ) : (
-                selectedSeats.map((seat) => (
+                heldSeats.map((seat) => (
                   <div key={seat.id} className="flex items-center justify-between rounded-lg bg-slate-800/60 px-3 py-2">
                     <div>
                       <p className="text-sm font-medium">{seat.seat_label}</p>
@@ -203,9 +235,9 @@ export default function SeatSelection() {
                     <button
                       type="button"
                       className="text-xs text-primary hover:underline"
-                      onClick={() => setSelectedSeatIds((prev) => prev.filter((id) => id !== seat.id))}
+                      onClick={() => void handleSeatClick(seat)}
                     >
-                      Remove
+                      Release
                     </button>
                   </div>
                 ))
@@ -223,9 +255,9 @@ export default function SeatSelection() {
               </div>
             </div>
 
-            <Button className="w-full" onClick={handleLockSeats} disabled={selectedSeatIds.length === 0} isLoading={isLocking}>
+            <Button className="w-full" onClick={handleCheckout} disabled={heldSeats.length === 0} isLoading={isLocking || isReleasing}>
               <Ticket className="w-4 h-4" />
-              Lock Selected Seats
+              Continue To Checkout
             </Button>
 
             {!isAuthenticated && (
@@ -246,10 +278,10 @@ export default function SeatSelection() {
           <div className="rounded-xl border border-white/10 bg-slate-900/70 p-4 text-xs text-slate-400 space-y-2">
             <p>Legend:</p>
             <p>Available: dark button</p>
-            <p>Locked by other users: amber</p>
+            <p>Held by other users: gray</p>
             <p>Sold: dimmed</p>
-            <p>Locked by you: green</p>
-            <p>Selected now: red</p>
+            <p>Held by you: green</p>
+            <p>Updating: blue</p>
           </div>
         </aside>
       </main>
