@@ -31,6 +31,11 @@ import type {
   RevenuePoint,
   SeatMatrixResponse,
   TicketItem,
+  VenueDetail,
+  VenueLayoutItem,
+  VenueSectionItem,
+  VenueSummary,
+  SeatMapResponse,
   SeatZone,
 } from '../types'
 
@@ -68,7 +73,7 @@ async function withRetry<T>(request: RetryableRequest<T>, attempts = API_RETRY_A
   throw previousError
 }
 
-export { withRetry}
+export { withRetry }
 
 export function extractApiErrorMessage(error: unknown, fallback: string): string {
   if (!axios.isAxiosError(error)) return fallback
@@ -123,6 +128,12 @@ export const eventApi = {
   },
   async seats(eventKey: string) {
     return withRetry(() => api.get<SeatMatrixResponse>(`/events/${eventKey}/seats`))
+  },
+}
+
+export const seatmapApi = {
+  async get(eventKey: string) {
+    return withRetry(() => api.get<SeatMapResponse>(`/events/${eventKey}/seatmap`))
   },
 }
 
@@ -202,6 +213,9 @@ export const adminApi = {
   async listEvents(params?: { search?: string; category?: string; start_from?: string; end_to?: string }) {
     return withRetry(() => api.get<EventCard[]>('/admin/events', { params }))
   },
+  async getEvent(eventKey: string | number) {
+    return withRetry(() => api.get<EventDetail>(`/admin/events/${eventKey}`))
+  },
   async createEvent(payload: unknown) {
     const response = await api.post<EventDetail>('/admin/events', payload)
     return response.data
@@ -244,6 +258,94 @@ export const adminApi = {
   async revenueByEvent() {
     return withRetry(() => api.get<AdminEventRevenueItem[]>('/admin/tickets/revenue-by-event'))
   },
+  async listVenues(params?: { search?: string; limit?: number; offset?: number }) {
+    return withRetry(() => api.get<VenueSummary[]>('/admin/venues', { params }))
+  },
+  async getVenue(venueId: number) {
+    return withRetry(() => api.get<VenueDetail>(`/admin/venues/${venueId}`))
+  },
+  async createVenue(payload: {
+    name: string
+    address?: string | null
+    city?: string | null
+    venue_type?: string
+    capacity?: number | null
+    width?: number
+    height?: number
+  }) {
+    const response = await api.post<VenueDetail>('/admin/venues', payload)
+    return response.data
+  },
+  async updateVenue(
+    venueId: number,
+    payload: Partial<{
+      name: string
+      address: string | null
+      city: string | null
+      venue_type: string
+      capacity: number | null
+      width: number
+      height: number
+      is_active: boolean
+    }>,
+  ) {
+    const response = await api.patch<VenueDetail>(`/admin/venues/${venueId}`, payload)
+    return response.data
+  },
+  async deleteVenue(venueId: number) {
+    const response = await api.delete(`/admin/venues/${venueId}`)
+    return response.data
+  },
+  async uploadVenueSvg(venueId: number, file: File) {
+    const formData = new FormData()
+    formData.append('file', file)
+    const response = await api.post<{ detail: string; venue_id: number }>(`/admin/venues/${venueId}/upload-svg`, formData)
+    return response.data
+  },
+  async processVenueSvg(venueId: number) {
+    const response = await api.post<{ venue_id: number; seat_count: number; sections_detected: number; width: number; height: number; seats: unknown[]; sections: unknown[] }>(`/admin/venues/${venueId}/process`)
+    return response.data
+  },
+  async listLayouts(venueId: number) {
+    return withRetry(() => api.get<VenueLayoutItem[]>(`/admin/venues/${venueId}/layouts`))
+  },
+  async createLayout(
+    venueId: number,
+    payload: { name: string; description?: string | null; svg_data?: string | null; sort_order?: number },
+  ) {
+    const response = await api.post<VenueLayoutItem>(`/admin/venues/${venueId}/layouts`, payload)
+    return response.data
+  },
+  async updateLayout(
+    layoutId: number,
+    payload: { name?: string; description?: string | null; svg_data?: string | null; sort_order?: number },
+  ) {
+    const response = await api.patch<VenueLayoutItem>(`/admin/layouts/${layoutId}`, payload)
+    return response.data
+  },
+  async deleteLayout(layoutId: number) {
+    const response = await api.delete(`/admin/layouts/${layoutId}`)
+    return response.data
+  },
+  async listLayoutSections(layoutId: number) {
+    return withRetry(() => api.get<VenueSectionItem[]>(`/admin/layouts/${layoutId}/sections`))
+  },
+  async createLayoutSection(
+    layoutId: number,
+    payload: { name: string; code: string; color?: string; price_base: number; sort_order?: number },
+  ) {
+    const response = await api.post<VenueSectionItem>(`/admin/layouts/${layoutId}/sections`, payload)
+    return response.data
+  },
+  async updateSection(
+    sectionId: number,
+    payload: Partial<{ name: string; code: string; color: string; price_base: number; sort_order: number }>,
+  ) {
+    const response = await api.patch<VenueSectionItem>(`/admin/sections/${sectionId}`, payload)
+    return response.data
+  },
+  async deleteSection(sectionId: number) {
+    const response = await api.delete(`/admin/sections/${sectionId}`)
   async gameConfigs(eventKey: string | number) {
     return withRetry(() => api.get<AdminGameConfig[]>(`/admin/games/${eventKey}/configs`))
   },
@@ -296,6 +398,32 @@ export const adminApi = {
   },
   async deleteZone(eventKey: string | number, zoneId: number) {
     const response = await api.delete(`/admin/events/${eventKey}/zones/${zoneId}`)
+    return response.data
+  },
+  async createEventSeatSingle(
+    eventKey: string | number,
+    payload: { seat_label: string; x: number; y: number; rotation?: number; zone_id?: number | null; section_id?: number | null; price?: number | null },
+  ) {
+    const response = await api.post(`/admin/events/${eventKey}/seats/single`, payload)
+    return response.data
+  },
+  async createEventSeatBulk(
+    eventKey: string | number,
+    payload: {
+      zone_id?: number | null
+      section_id?: number | null
+      pattern: 'straight' | 'arc'
+      rows: number
+      cols: number
+      gap_x: number
+      gap_y: number
+      start_x: number
+      start_y: number
+      label_prefix: string
+      arc_config?: { center_x: number; center_y: number; radius: number; start_angle: number; end_angle: number } | null
+    },
+  ) {
+    const response = await api.post(`/admin/events/${eventKey}/seats/bulk`, payload)
     return response.data
   },
 }

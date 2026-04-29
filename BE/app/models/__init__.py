@@ -8,6 +8,7 @@ from app.models.queue import QueueEntry
 from app.models.review import EventReview
 from app.models.seat import Seat
 from app.models.user import User
+from app.models.venue import Section, Venue, VenueLayout
 
 __all__ = [
     "Base",
@@ -27,4 +28,7 @@ __all__ = [
     "QueueEntry",
     "EventReview",
     "User",
+    "Venue",
+    "VenueLayout",
+    "Section",
 ]
