@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { useAuth } from '@/context/AuthContext'
@@ -8,8 +8,9 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { useCheckout } from '@/features/booking/hooks/useBooking'
 import { useEventSeats } from '@/features/events/hooks/useEvents'
+import { gameApi } from '@/lib/api'
 import { queueStorage } from '@/lib/storage'
-import type { Seat } from '@/types'
+import type { MyDiscount, Seat } from '@/types'
 import { AlertCircle, CreditCard, MapPin, QrCode, Rocket, Timer } from 'lucide-react'
 
 interface CheckoutLocationState {
@@ -34,6 +35,9 @@ export default function Checkout() {
     phone: '',
   })
   const [errorMessage, setErrorMessage] = useState<string>('')
+  const [discounts, setDiscounts] = useState<MyDiscount[]>([])
+  const [selectedDiscountCode, setSelectedDiscountCode] = useState<string>('')
+  const [discountAmount, setDiscountAmount] = useState(0)
 
   const { seats: matrix } = useEventSeats(eventKey)
 
@@ -48,6 +52,22 @@ export default function Checkout() {
   }, [matrix?.seats, state.lockedSeatIds])
 
   const subtotal = lockedSeats.reduce((sum, seat) => sum + Number(seat.price), 0)
+  const total = Math.max(subtotal - discountAmount, 0)
+
+  useEffect(() => {
+    const selected = discounts.find((item) => item.code === selectedDiscountCode && item.status === 'active' && item.event_id === eventId)
+    if (!selected) {
+      setDiscountAmount(0)
+      return
+    }
+    const nextDiscount = subtotal * (Number(selected.discount_percent) / 100)
+    setDiscountAmount(nextDiscount)
+  }, [discounts, selectedDiscountCode, subtotal, eventId])
+
+  useEffect(() => {
+    if (!isAuthenticated) return
+    void gameApi.myDiscounts().then(setDiscounts).catch(() => setDiscounts([]))
+  }, [isAuthenticated])
 
   const handleInputChange = (field: 'fullName' | 'email' | 'phone', value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
@@ -74,7 +94,7 @@ export default function Checkout() {
     try {
       setErrorMessage('')
       const queueToken = eventKey ? queueStorage.getToken(eventKey) ?? undefined : undefined
-      const result = await checkout(eventId, queueToken)
+      const result = await checkout(eventId, queueToken, selectedDiscountCode || undefined)
       navigate('/confirmation', {
         state: {
           order: result,
@@ -189,13 +209,17 @@ export default function Checkout() {
                   <span className="text-slate-500">Subtotal ({lockedSeats.length} seats)</span>
                   <span className="text-white">${subtotal.toFixed(2)}</span>
                 </div>
+                <div className="flex justify-between items-center text-sm">
+                  <span className="text-slate-500">Discount</span>
+                  <span className="text-emerald-300">-${discountAmount.toFixed(2)}</span>
+                </div>
               </div>
 
               <div className="pt-4 border-t border-white/5">
                 <div className="flex justify-between items-end">
                   <div>
                     <span className="text-[10px] font-headline font-black uppercase tracking-[0.3em] text-slate-500">Total Amount</span>
-                    <p className="text-4xl font-headline font-black text-white mt-1">${subtotal.toFixed(2)}</p>
+                    <p className="text-4xl font-headline font-black text-white mt-1">${total.toFixed(2)}</p>
                   </div>
                   <div className="bg-white p-2 rounded-lg">
                     <div className="w-16 h-16 bg-slate-100 flex items-center justify-center">
@@ -211,6 +235,23 @@ export default function Checkout() {
                   {eventKey}
                 </div>
               )}
+              <div className="mt-4">
+                <label className="text-xs text-slate-400 uppercase tracking-wider">Voucher</label>
+                <select
+                  className="mt-2 w-full rounded-lg border bg-slate-800 border-white/20 px-3 py-2 text-white"
+                  value={selectedDiscountCode}
+                  onChange={(e) => setSelectedDiscountCode(e.target.value)}
+                >
+                  <option value="">No voucher</option>
+                  {discounts
+                    .filter((item) => item.status === 'active' && item.event_id === eventId)
+                    .map((item) => (
+                      <option key={item.code} value={item.code}>
+                        {item.code} - {item.discount_percent}% ({item.tier})
+                      </option>
+                    ))}
+                </select>
+              </div>
             </div>
 
             <div className="mt-6 flex items-center gap-4 bg-secondary/5 border border-secondary/20 p-4 rounded-2xl">

@@ -3,6 +3,7 @@ import './App.css'
 import { CustomerLayout } from './components/layout/CustomerLayout'
 import { AdminLayout } from './components/layout/AdminLayout'
 import { AuthProvider, useAuth } from './context/AuthContext'
+import { GameProvider } from './context/GameContext'
 import Home from './pages/customer/Home'
 import EventDetail from './pages/customer/EventDetail'
 import Login from './pages/customer/Login'
@@ -23,6 +24,7 @@ import AdminTickets from './pages/admin/Tickets'
 import AdminAnalytics from './pages/admin/Analytics'
 import AdminUsers from './pages/admin/Users'
 import AdminSettings from './pages/admin/Settings'
+import AdminGames from './pages/admin/Games'
 
 function RequireAdmin({ children }: { children: React.ReactNode }) {
   const { isAuthenticated, isAdmin } = useAuth()
@@ -86,6 +88,7 @@ function AppRoutes() {
           <Route path="tickets" element={<AdminTickets />} />
           <Route path="analytics" element={<AdminAnalytics />} />
           <Route path="users" element={<AdminUsers />} />
+          <Route path="games" element={<AdminGames />} />
           <Route path="settings" element={<AdminSettings />} />
         </Route>
       </Routes>
@@ -96,7 +99,9 @@ function AppRoutes() {
 function App() {
   return (
     <AuthProvider>
-      <AppRoutes />
+      <GameProvider>
+        <AppRoutes />
+      </GameProvider>
     </AuthProvider>
   )
 }

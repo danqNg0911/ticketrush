@@ -16,6 +16,7 @@ from app.models.order import Order, OrderItem, Ticket, TicketCancellation
 from app.models.seat import Seat
 from app.schemas.booking import CheckoutItemResponse, CheckoutResponse, LockSeatsResponse, MyTicketResponse
 from app.services.queue_service import ensure_queue_access, mark_queue_completed
+from app.services.game_service import consume_discount_for_checkout
 from app.ws.connection_manager import seat_ws_manager
 
 
@@ -159,6 +160,7 @@ async def checkout_locked_seats(
     user_id: int,
     event_id: int,
     queue_token: str | None,
+    discount_code: str | None = None,
 ) -> CheckoutResponse:
     """Confirm payment and convert locked seats to sold tickets atomically."""
 
@@ -211,7 +213,12 @@ async def checkout_locked_seats(
         )
         zone_map = {zone_id: zone_name for zone_id, zone_name in (zone_rows.all() if zone_rows else [])}
 
-        total_amount = sum(Decimal(str(seat.price)) for seat in valid_seats)
+        subtotal_amount = sum(Decimal(str(seat.price)) for seat in valid_seats)
+        discount_percent = 0.0
+        if discount_code:
+            discount_percent = await consume_discount_for_checkout(session, user_id=user_id, event_id=event_id, code=discount_code)
+        discount_amount = (subtotal_amount * Decimal(str(discount_percent / 100))).quantize(Decimal("0.01"))
+        total_amount = max(subtotal_amount - discount_amount, Decimal("0.00"))
 
         order = Order(
             user_id=user_id,
@@ -277,6 +284,8 @@ async def checkout_locked_seats(
         order_id=order.id,
         order_status=order.status,
         total_amount=Decimal(str(order.total_amount)),
+        discount_amount=discount_amount if 'discount_amount' in locals() else Decimal("0"),
+        discount_code=discount_code,
         paid_at=order.paid_at or now,
         items=checkout_items,
     )

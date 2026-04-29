@@ -160,6 +160,21 @@ export interface SeatMapResponse {
   sections: SeatMapSection[]
   seats: SeatMapSeat[]
   seat_count: number
+export interface EventReview {
+  id: number
+  event_id: number
+  user_id: number
+  reviewer_name: string
+  rating: number
+  content: string
+  image_url: string | null
+  created_at: string
+}
+
+export interface EventReviewCreatePayload {
+  rating: number
+  content: string
+  image_url?: string | null
 }
 
 export interface QueueJoinResponse {
@@ -197,8 +212,82 @@ export interface CheckoutResponse {
   order_id: number
   order_status: 'pending' | 'paid' | 'cancelled'
   total_amount: number
+  discount_amount?: number
+  discount_code?: string | null
   paid_at: string
   items: CheckoutItem[]
+}
+
+export interface GamePlayRequest {
+  game_type: 'wheel' | 'scratch'
+  event_id: number
+  signed_payload: string
+  nonce: string
+  timestamp: number
+}
+
+export interface GamePlayResponse {
+  segment_index: number
+  discount_code: string | null
+  tier_name: string
+  discount_percent: number
+  message: string
+}
+
+export interface GameSignedPayload {
+  nonce: string
+  timestamp: number
+  signed_payload: string
+}
+
+export interface GameStatusResponse {
+  remaining_prizes: Array<{
+    tier_name: string
+    discount_percent: number
+    remaining_qty: number
+    weight: number
+  }>
+  user_plays_today: {
+    wheel_count: number
+    scratch_count: number
+  }
+  next_reset_time: string
+}
+
+export interface MyDiscount {
+  code: string
+  event_id: number
+  tier: string
+  discount_percent: number
+  status: string
+  expires_at: string
+  used_at: string | null
+}
+
+export interface AdminGameConfig {
+  id: number
+  event_id: number
+  game_type: 'wheel' | 'scratch'
+  is_active: boolean
+  daily_reset_cron: string
+  max_plays_per_user_per_day: number
+}
+
+export interface AdminPrizePool {
+  id: number
+  event_id: number
+  tier_name: string
+  discount_percent: number
+  initial_qty: number
+  remaining_qty: number
+  weight: number
+}
+
+export interface AdminGameMonitor {
+  total_plays_today: number
+  total_vouchers_remaining: number
+  top_users: Array<{ user_id: number; plays: number; flag_fraud: boolean }>
+  pool_by_tier: Array<{ tier_name: string; remaining_qty: number }>
 }
 
 export interface TicketItem {

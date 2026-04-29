@@ -67,10 +67,10 @@ export function useCheckout() {
     error: null,
   })
 
-  const checkout = useCallback(async (eventId: number, queueToken?: string) => {
+  const checkout = useCallback(async (eventId: number, queueToken?: string, discountCode?: string) => {
     setState((prev) => ({ ...prev, isLoading: true, error: null }))
     try {
-      const response = await bookingApi.checkout({ event_id: eventId, queue_token: queueToken })
+      const response = await bookingApi.checkout({ event_id: eventId, queue_token: queueToken, discount_code: discountCode })
       setState({ isLoading: false, error: null })
       return response
     } catch (error) {

@@ -6,6 +6,9 @@ from hashlib import sha256
 from time import monotonic
 
 from fastapi import HTTPException, Request, status
+from redis.exceptions import RedisError
+
+from app.core.redis_client import get_redis_client
 
 
 class InMemoryRateLimiter:
@@ -14,9 +17,24 @@ class InMemoryRateLimiter:
     def __init__(self) -> None:
         self._hits: dict[tuple[str, str], deque[float]] = defaultdict(deque)
         self._lock = asyncio.Lock()
+        self._redis = get_redis_client()
 
     async def check(self, scope: str, identity: str, limit: int, window_seconds: int) -> None:
         """Raise HTTP 429 when caller exceeds the configured rate."""
+
+        redis_key = f"ratelimit:{scope}:{identity}"
+        try:
+            current = await self._redis.incr(redis_key)
+            if current == 1:
+                await self._redis.expire(redis_key, window_seconds)
+            if current > limit:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail=f"Rate limit exceeded for {scope}. Try again later.",
+                )
+            return
+        except RedisError:
+            pass
 
         now = monotonic()
         window_start = now - window_seconds

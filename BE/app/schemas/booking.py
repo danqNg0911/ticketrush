@@ -36,6 +36,7 @@ class CheckoutRequest(BaseModel):
 
     event_id: int
     queue_token: str | None = None
+    discount_code: str | None = None
 
 
 class CheckoutItemResponse(BaseModel):
@@ -55,6 +56,8 @@ class CheckoutResponse(BaseModel):
     order_id: int
     order_status: OrderStatus
     total_amount: Decimal
+    discount_amount: Decimal = Decimal("0")
+    discount_code: str | None = None
     paid_at: datetime
     items: list[CheckoutItemResponse]
 

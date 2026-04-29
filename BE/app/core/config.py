@@ -1,5 +1,6 @@
 """Application configuration loaded from environment variables."""
 
+import json
 from functools import lru_cache
 from typing import Literal
 
@@ -35,11 +36,27 @@ class Settings(BaseSettings):
     hold_minutes_default: int = 10
     queue_batch_size_default: int = 50
     queue_admit_ttl_minutes: int = 15
+    game_secret: str = Field(default="change-game-secret", validation_alias="GAME_SECRET")
+    redis_url: str = Field(default="redis://127.0.0.1:6379/0", validation_alias="REDIS_URL")
 
     @property
     def allowed_origins(self) -> list[str]:
         """CORS origins as a list."""
-        return [origin.strip() for origin in self.allowed_origins_raw.split(",") if origin.strip()]
+
+        raw = self.allowed_origins_raw.strip()
+        if not raw:
+            return ["http://localhost:5173"]
+
+        # Support both JSON array format and comma-separated format.
+        if raw.startswith("["):
+            try:
+                parsed = json.loads(raw)
+                if isinstance(parsed, list):
+                    return [str(origin).strip() for origin in parsed if str(origin).strip()]
+            except json.JSONDecodeError:
+                pass
+
+        return [origin.strip() for origin in raw.split(",") if origin.strip()]
 
     @field_validator("debug", mode="before")
     @classmethod
@@ -51,12 +68,6 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return value.strip().lower() in {"1", "true", "yes", "on", "debug", "development"}
         return bool(value)
-
-        if isinstance(value, list):
-            return value
-        if isinstance(value, str):
-            return [item.strip() for item in value.split(",") if item.strip()]
-        return ["http://localhost:5173"]
 
 
 @lru_cache

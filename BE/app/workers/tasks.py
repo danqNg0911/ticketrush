@@ -2,11 +2,13 @@
 
 import asyncio
 import logging
+from datetime import UTC, datetime, date
 
 from app.core.cache import event_seat_cache_namespace, public_api_cache
 from app.core.db import AsyncSessionLocal
 from app.services.booking_service import release_expired_locks
 from app.services.dashboard_service import get_dashboard_summary
+from app.services.game_service import reset_daily_game_state
 from app.services.queue_service import cleanup_expired_queue_entries, process_virtual_queue
 from app.ws.connection_manager import admin_ws_manager, seat_ws_manager
 
@@ -19,6 +21,7 @@ class WorkerOrchestrator:
     def __init__(self) -> None:
         self._stop_event = asyncio.Event()
         self._task: asyncio.Task[None] | None = None
+        self._last_game_reset_date: date | None = None
 
     async def start(self) -> None:
         """Start worker loop if not running."""
@@ -51,6 +54,12 @@ class WorkerOrchestrator:
 
                 async with AsyncSessionLocal() as session:
                     await cleanup_expired_queue_entries(session)
+
+                now_utc = datetime.now(UTC)
+                if self._last_game_reset_date != now_utc.date() and now_utc.hour == 0 and now_utc.minute < 2:
+                    async with AsyncSessionLocal() as session:
+                        await reset_daily_game_state(session)
+                    self._last_game_reset_date = now_utc.date()
 
                 if admin_ws_manager.has_clients():
                     async with AsyncSessionLocal() as session:

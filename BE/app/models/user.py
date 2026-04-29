@@ -25,3 +25,4 @@ class User(TimestampMixin, Base):
     locked_seats = relationship("Seat", back_populates="locked_by_user", foreign_keys="Seat.locked_by_user_id")
     orders = relationship("Order", back_populates="user", cascade="all,delete")
     queue_entries = relationship("QueueEntry", back_populates="user", cascade="all,delete")
+    event_reviews = relationship("EventReview", back_populates="user", cascade="all,delete")
