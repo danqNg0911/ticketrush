@@ -1,10 +1,18 @@
-import { Link, useParams } from 'react-router-dom'
+import { useEffect, useMemo, useState } from 'react'
+import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { Footer } from '@/components/layout/Footer'
 import { Navbar } from '@/components/layout/Navbar'
 import { Button } from '@/components/ui/Button'
+import { LuckyWheel } from '@/components/game/LuckyWheel'
+import { ScratchCard } from '@/components/game/ScratchCard'
+import { eventsApi } from '@/features/events/api/eventsApi'
 import { useEventDetail } from '@/features/events/hooks/useEvents'
-import { Calendar, Clock, MapPin, Users } from 'lucide-react'
+import { useAuth } from '@/context/AuthContext'
+import { useGame } from '@/context/GameContext'
+import { extractApiErrorMessage, gameApi } from '@/lib/api'
+import type { EventReview, GamePlayResponse } from '@/types'
+import { Calendar, Clock, MapPin, Star, Users } from 'lucide-react'
 
 const FALLBACK_IMAGE =
   'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1200&q=80'
@@ -22,7 +30,147 @@ function formatDate(date: string) {
 
 export default function EventDetail() {
   const { eventKey } = useParams<{ eventKey: string }>()
+  const navigate = useNavigate()
+  const { isAuthenticated } = useAuth()
   const { event, isLoading, error } = useEventDetail(eventKey)
+  const { status: gameStatus, playsLeft, error: gameError, refreshStatus } = useGame()
+  const [activeTab, setActiveTab] = useState<'info' | 'reviews'>('info')
+  const [reviews, setReviews] = useState<EventReview[]>([])
+  const [reviewOffset, setReviewOffset] = useState(0)
+  const [reviewLoading, setReviewLoading] = useState(false)
+  const [reviewError, setReviewError] = useState<string | null>(null)
+  const [reviewFormOpen, setReviewFormOpen] = useState(false)
+  const [rating, setRating] = useState(5)
+  const [content, setContent] = useState('')
+  const [imageUrl, setImageUrl] = useState<string | null>(null)
+  const [submitting, setSubmitting] = useState(false)
+  const [gameMessage, setGameMessage] = useState<string>('')
+  const [gameLoading, setGameLoading] = useState(false)
+  const [showConfetti, setShowConfetti] = useState(false)
+
+  async function fetchReviews(nextOffset = 0, append = false) {
+    if (!eventKey) return
+    setReviewLoading(true)
+    setReviewError(null)
+    try {
+      const data = await eventsApi.reviews(eventKey, { limit: 10, offset: nextOffset })
+      setReviews((prev) => (append ? [...prev, ...data] : data))
+      setReviewOffset(nextOffset + data.length)
+    } catch (e) {
+      setReviewError(e instanceof Error ? e.message : 'Failed to load reviews')
+    } finally {
+      setReviewLoading(false)
+    }
+  }
+
+  useEffect(() => {
+    if (eventKey) {
+      void fetchReviews(0, false)
+    }
+  }, [eventKey])
+
+  useEffect(() => {
+    if (!event) return
+    void refreshStatus(event.id)
+    const timer = window.setInterval(() => {
+      void refreshStatus(event.id)
+    }, 20000)
+    return () => window.clearInterval(timer)
+  }, [event?.id, refreshStatus])
+
+  const averageRating = useMemo(() => {
+    if (reviews.length === 0) return 0
+    return reviews.reduce((sum, review) => sum + review.rating, 0) / reviews.length
+  }, [reviews])
+
+  const handleImageFile = async (file: File | null) => {
+    if (!file) {
+      setImageUrl(null)
+      return
+    }
+    const dataUrl = await new Promise<string>((resolve, reject) => {
+      const reader = new FileReader()
+      reader.onload = () => resolve(String(reader.result || ''))
+      reader.onerror = () => reject(new Error('Cannot read image file'))
+      reader.readAsDataURL(file)
+    })
+    setImageUrl(dataUrl)
+  }
+
+  const submitReview = async () => {
+    if (!eventKey) return
+    if (!isAuthenticated) {
+      navigate('/login')
+      return
+    }
+    if (!content.trim()) return
+
+    setSubmitting(true)
+    setReviewError(null)
+    try {
+      await eventsApi.createReview(eventKey, {
+        rating,
+        content: content.trim(),
+        image_url: imageUrl,
+      })
+      setReviewFormOpen(false)
+      setContent('')
+      setImageUrl(null)
+      setRating(5)
+      await fetchReviews(0, false)
+    } catch (e) {
+      setReviewError(e instanceof Error ? e.message : 'Failed to submit review')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const playGame = async (gameType: 'wheel' | 'scratch'): Promise<GamePlayResponse | null> => {
+    if (!event) return
+    if (!isAuthenticated) {
+      navigate('/login')
+      return
+    }
+    setGameLoading(true)
+    setGameMessage('')
+    try {
+      const sign = await gameApi.sign(event.id, gameType)
+      const result = await gameApi.play({
+        event_id: event.id,
+        game_type: gameType,
+        nonce: sign.nonce,
+        timestamp: sign.timestamp,
+        signed_payload: sign.signed_payload,
+      })
+      const won = Boolean(result.discount_code)
+      setGameMessage(
+        result.discount_code
+          ? `Ban trung ${result.tier_name} (${result.discount_percent}%). Ma: ${result.discount_code}`
+          : result.message,
+      )
+      if (won) {
+        setShowConfetti(true)
+        const ctx = new AudioContext()
+        const osc = ctx.createOscillator()
+        const gain = ctx.createGain()
+        osc.connect(gain)
+        gain.connect(ctx.destination)
+        osc.type = 'triangle'
+        osc.frequency.value = 660
+        gain.gain.value = 0.05
+        osc.start()
+        osc.stop(ctx.currentTime + 0.15)
+        window.setTimeout(() => setShowConfetti(false), 1500)
+      }
+      await refreshStatus(event.id)
+      return result
+    } catch (e) {
+      setGameMessage(extractApiErrorMessage(e, 'Khong the choi game luc nay'))
+      return null
+    } finally {
+      setGameLoading(false)
+    }
+  }
 
   if (isLoading) {
     return (
@@ -74,33 +222,144 @@ export default function EventDetail() {
 
       <main className="max-w-7xl mx-auto px-4 py-12 grid grid-cols-1 lg:grid-cols-3 gap-8">
         <section className="lg:col-span-2 space-y-6">
-          <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6">
-            <h2 className="text-xl font-bold mb-4">About This Event</h2>
-            <p className="text-slate-300 leading-relaxed">{event.description}</p>
+          <div className="rounded-xl border border-white/10 bg-slate-900/70 p-2 inline-flex gap-2">
+            <button
+              type="button"
+              className={`px-4 py-2 rounded-lg text-sm ${activeTab === 'info' ? 'bg-primary text-white' : 'text-slate-300 hover:bg-white/10'}`}
+              onClick={() => setActiveTab('info')}
+            >
+              Info
+            </button>
+            <button
+              type="button"
+              className={`px-4 py-2 rounded-lg text-sm ${activeTab === 'reviews' ? 'bg-primary text-white' : 'text-slate-300 hover:bg-white/10'}`}
+              onClick={() => setActiveTab('reviews')}
+            >
+              Reviews
+            </button>
           </div>
 
-          <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6">
-            <h2 className="text-xl font-bold mb-4">Seat Zones</h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              {event.zones.map((zone) => (
-                <div key={zone.id} className="rounded-lg bg-slate-800/70 border border-white/10 p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="font-semibold">{zone.name}</p>
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-white/10">{zone.code}</span>
+          {activeTab === 'info' ? (
+            <>
+              <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6">
+                <h2 className="text-xl font-bold mb-4">About This Event</h2>
+                <p className="text-slate-300 leading-relaxed">{event.description}</p>
+              </div>
+
+              <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6">
+                <h2 className="text-xl font-bold mb-4">Seat Zones</h2>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  {event.zones.map((zone) => (
+                    <div key={zone.id} className="rounded-lg bg-slate-800/70 border border-white/10 p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <p className="font-semibold">{zone.name}</p>
+                        <span className="text-xs px-2 py-0.5 rounded-full bg-white/10">{zone.code}</span>
+                      </div>
+                      <div className="text-sm text-slate-300 space-y-1">
+                        <p>
+                          {zone.row_count} rows x {zone.seats_per_row} seats
+                        </p>
+                        <p className="text-secondary font-semibold">${Number(zone.price).toFixed(2)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6 space-y-4">
+              <div className="flex items-center justify-between">
+                <div>
+                  <h2 className="text-xl font-bold">Customer Reviews</h2>
+                  <p className="text-sm text-slate-400 mt-1">
+                    {reviews.length > 0 ? `Average ${averageRating.toFixed(1)}/5 from ${reviews.length} reviews` : 'No reviews yet'}
+                  </p>
+                </div>
+                <Button onClick={() => setReviewFormOpen((prev) => !prev)}>Thêm đánh giá</Button>
+              </div>
+
+              {reviewFormOpen && (
+                <div className="rounded-lg border border-white/10 bg-slate-800/50 p-4 space-y-3">
+                  <div className="flex items-center gap-1">
+                    {[1, 2, 3, 4, 5].map((star) => (
+                      <button key={star} type="button" onClick={() => setRating(star)} className="p-1">
+                        <Star className={`h-5 w-5 ${star <= rating ? 'fill-yellow-400 text-yellow-400' : 'text-slate-500'}`} />
+                      </button>
+                    ))}
                   </div>
-                  <div className="text-sm text-slate-300 space-y-1">
-                    <p>
-                      {zone.row_count} rows x {zone.seats_per_row} seats
-                    </p>
-                    <p className="text-secondary font-semibold">${Number(zone.price).toFixed(2)}</p>
+                  <textarea
+                    className="w-full rounded-lg border bg-slate-900/80 border-white/20 px-4 py-2.5 text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-red"
+                    rows={4}
+                    placeholder="Chia sẻ trải nghiệm của bạn..."
+                    value={content}
+                    onChange={(e) => setContent(e.target.value)}
+                  />
+                  <input type="file" accept="image/*" onChange={(e) => void handleImageFile(e.target.files?.[0] || null)} />
+                  {imageUrl && <img src={imageUrl} alt="Review preview" className="w-32 h-32 object-cover rounded border border-white/20" />}
+                  <div className="flex justify-end">
+                    <Button onClick={submitReview} isLoading={submitting} disabled={!content.trim()}>
+                      Gửi đánh giá
+                    </Button>
                   </div>
                 </div>
-              ))}
+              )}
+
+              {reviewError && <p className="text-sm text-red-300">{reviewError}</p>}
+
+              <div className="space-y-3">
+                {reviews.map((review) => (
+                  <div key={review.id} className="rounded-lg border border-white/10 bg-slate-800/40 p-4">
+                    <div className="flex items-center justify-between">
+                      <p className="font-semibold">{review.reviewer_name}</p>
+                      <p className="text-xs text-slate-400">{new Date(review.created_at).toLocaleString('vi-VN')}</p>
+                    </div>
+                    <div className="flex items-center gap-1 mt-1">
+                      {[1, 2, 3, 4, 5].map((star) => (
+                        <Star key={star} className={`h-4 w-4 ${star <= review.rating ? 'fill-yellow-400 text-yellow-400' : 'text-slate-500'}`} />
+                      ))}
+                    </div>
+                    <p className="text-sm text-slate-300 mt-2 whitespace-pre-wrap">{review.content}</p>
+                    {review.image_url && <img src={review.image_url} alt="Review" className="mt-3 w-44 h-44 object-cover rounded border border-white/20" />}
+                  </div>
+                ))}
+              </div>
+
+              <div className="pt-2">
+                <Button variant="outline" onClick={() => void fetchReviews(reviewOffset, true)} disabled={reviewLoading}>
+                  {reviewLoading ? 'Loading...' : 'Hiện thêm'}
+                </Button>
+              </div>
             </div>
-          </div>
+          )}
         </section>
 
         <aside className="space-y-4">
+          <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6 space-y-3 relative overflow-hidden">
+            <h3 className="text-lg font-bold">Lucky Game</h3>
+            <p className="text-xs text-slate-400">Hom nay ban con {playsLeft.wheel} luot quay va {playsLeft.scratch} luot cao.</p>
+            <p className="text-xs text-slate-400">
+              Reset: {gameStatus ? new Date(gameStatus.next_reset_time).toLocaleString('vi-VN') : '--'}
+            </p>
+            {gameStatus && (
+              <div className="text-xs text-slate-300 space-y-1">
+                {gameStatus.remaining_prizes.slice(0, 3).map((item) => (
+                  <p key={item.tier_name}>
+                    {item.tier_name}: con {item.remaining_qty}
+                  </p>
+                ))}
+              </div>
+            )}
+            <LuckyWheel status={gameStatus} playsLeft={playsLeft.wheel} onPlay={() => playGame('wheel')} />
+            <ScratchCard playsLeft={playsLeft.scratch} onPlay={() => playGame('scratch')} />
+            {gameError && <p className="text-xs text-amber-300">{gameError}</p>}
+            {gameMessage && <p className="text-xs text-emerald-300">{gameMessage}</p>}
+            {showConfetti && (
+              <div className="pointer-events-none absolute inset-0 flex items-start justify-center text-2xl animate-pulse">
+                <span>🎉🎉🎉</span>
+              </div>
+            )}
+          </div>
+
           <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6 space-y-4">
             <h3 className="text-lg font-bold">Event Info</h3>
             <div className="flex items-start gap-3 text-slate-300">

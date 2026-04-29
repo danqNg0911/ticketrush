@@ -70,6 +70,7 @@ async def checkout(
         user_id=current_user.id,
         event_id=payload.event_id,
         queue_token=payload.queue_token,
+        discount_code=payload.discount_code,
     )
 
 

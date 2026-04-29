@@ -36,6 +36,8 @@ class Settings(BaseSettings):
     hold_minutes_default: int = 10
     queue_batch_size_default: int = 50
     queue_admit_ttl_minutes: int = 15
+    game_secret: str = Field(default="change-game-secret", validation_alias="GAME_SECRET")
+    redis_url: str = Field(default="redis://127.0.0.1:6379/0", validation_alias="REDIS_URL")
 
     @property
     def allowed_origins(self) -> list[str]:

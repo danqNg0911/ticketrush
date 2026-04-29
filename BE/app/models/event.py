@@ -39,6 +39,7 @@ class Event(TimestampMixin, Base):
     seats = relationship("Seat", back_populates="event", cascade="all,delete")
     orders = relationship("Order", back_populates="event", cascade="all,delete")
     queue_entries = relationship("QueueEntry", back_populates="event", cascade="all,delete")
+    reviews = relationship("EventReview", back_populates="event", cascade="all,delete")
 
 
 class SeatZone(TimestampMixin, Base):

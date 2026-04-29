@@ -19,6 +19,7 @@ export interface ReleaseSeatsPayload {
 export interface CheckoutPayload {
   event_id: number
   queue_token?: string
+  discount_code?: string
 }
 
 export interface MyTicketsParams {
@@ -62,6 +63,7 @@ export const bookingApi = {
     const response = await api.post<CheckoutResponse>('/bookings/checkout', {
       event_id: payload.event_id,
       queue_token: payload.queue_token,
+      discount_code: payload.discount_code,
     })
     return response.data
   },

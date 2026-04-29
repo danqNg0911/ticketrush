@@ -1,10 +1,12 @@
 """Small in-memory TTL cache helpers for low-volatility API responses."""
 
 import asyncio
+import json
 from dataclasses import dataclass
 from time import monotonic
 from typing import Any
 
+from app.core.redis_client import get_redis_client
 
 @dataclass(slots=True)
 class CacheEntry:
@@ -21,9 +23,18 @@ class TTLCacheStore:
         self._entries: dict[tuple[str, int, Any], CacheEntry] = {}
         self._namespace_versions: dict[str, int] = {}
         self._lock = asyncio.Lock()
+        self._redis = get_redis_client()
 
     async def get(self, namespace: str, key: Any) -> Any | None:
         """Return cached value when present and not expired."""
+
+        redis_key = f"cache:{namespace}:{key!r}"
+        try:
+            raw = await self._redis.get(redis_key)
+            if raw is not None:
+                return json.loads(raw)
+        except Exception:
+            pass
 
         async with self._lock:
             version = self._namespace_versions.get(namespace, 0)
@@ -39,6 +50,12 @@ class TTLCacheStore:
     async def set(self, namespace: str, key: Any, value: Any, ttl_seconds: int) -> Any:
         """Store value in cache and return it for fluent usage."""
 
+        redis_key = f"cache:{namespace}:{key!r}"
+        try:
+            await self._redis.set(redis_key, json.dumps(value, default=str), ex=ttl_seconds)
+        except Exception:
+            pass
+
         async with self._lock:
             version = self._namespace_versions.get(namespace, 0)
             composite_key = (namespace, version, key)
@@ -48,16 +65,44 @@ class TTLCacheStore:
     async def invalidate_namespace(self, namespace: str) -> None:
         """Invalidate all current entries of one namespace."""
 
+        await self.invalidate_pattern(f"cache:{namespace}:*")
+
         async with self._lock:
             self._namespace_versions[namespace] = self._namespace_versions.get(namespace, 0) + 1
+
+    async def invalidate_pattern(self, pattern: str) -> int:
+        """Invalidate redis keys matching one wildcard pattern."""
+
+        try:
+            keys = await self._redis.keys(pattern)
+            if not keys:
+                return 0
+            return int(await self._redis.delete(*keys))
+        except Exception:
+            return 0
+
+    async def invalidate_patterns(self, patterns: list[str]) -> int:
+        """Invalidate multiple wildcard patterns and return total deleted keys."""
+
+        total = 0
+        for pattern in patterns:
+            total += await self.invalidate_pattern(pattern)
+        return total
 
 
 public_api_cache = TTLCacheStore()
 
 EVENT_LIST_CACHE_NAMESPACE = "events:list"
+GAME_STATUS_CACHE_NAMESPACE = "game:status"
 
 
 def event_seat_cache_namespace(event_id: int) -> str:
     """Namespace for one event seat matrix cache."""
 
     return f"events:seats:{event_id}"
+
+
+def game_status_cache_namespace(event_id: int) -> str:
+    """Namespace for one event game status cache."""
+
+    return f"{GAME_STATUS_CACHE_NAMESPACE}:{event_id}"
