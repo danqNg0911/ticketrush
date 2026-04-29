@@ -3,7 +3,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.models.enums import EventStatus, Gender, SeatStatus
 
@@ -34,7 +34,17 @@ class EventCreateRequest(BaseModel):
     queue_enabled: bool = True
     queue_release_batch: int = Field(default=50, ge=1, le=500)
     max_active_queue_tokens: int = Field(default=200, ge=1, le=5000)
-    zones: list[SeatZoneCreate] = Field(min_length=1)
+    venue_id: int | None = Field(default=None, ge=1)
+    venue_layout_id: int | None = Field(default=None, ge=1)
+    zones: list[SeatZoneCreate] = Field(default_factory=list)
+
+    @model_validator(mode="after")
+    def validate_seat_source(self) -> "EventCreateRequest":
+        if self.venue_layout_id is not None:
+            return self
+        if not self.zones:
+            raise ValueError("zones is required when venue_layout_id is not provided")
+        return self
 
 
 class EventUpdateRequest(BaseModel):
@@ -52,6 +62,8 @@ class EventUpdateRequest(BaseModel):
     queue_enabled: bool | None = None
     queue_release_batch: int | None = Field(default=None, ge=1, le=500)
     max_active_queue_tokens: int | None = Field(default=None, ge=1, le=5000)
+    venue_id: int | None = Field(default=None, ge=1)
+    venue_layout_id: int | None = Field(default=None, ge=1)
 
 
 class EventCardResponse(BaseModel):
@@ -68,6 +80,8 @@ class EventCardResponse(BaseModel):
     cover_image_url: str
     status: EventStatus
     queue_enabled: bool
+    venue_id: int | None = None
+    venue_layout_id: int | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -127,6 +141,7 @@ class SeatResponse(BaseModel):
     status: SeatStatus
     lock_expires_at: datetime | None = None
     is_locked_by_me: bool = False
+    is_admin_locked: bool = False
     locked_by_user: SeatUserInfoResponse | None = None
     sold_to_user: SeatPurchaseInfoResponse | None = None
 
@@ -165,6 +180,7 @@ class SeatSingleCreateRequest(BaseModel):
     zone_id: int | None = None
     section_id: int | None = None
     price: Decimal | None = None
+    is_admin_locked: bool = False
 
 
 class ArcConfig(BaseModel):
@@ -198,7 +214,19 @@ class SeatCreateResponse(BaseModel):
     y: float | None
 
 
+class SeatUpdateRequest(BaseModel):
+    """Update an event seat's editable geometry and sale metadata."""
+
+    seat_label: str | None = Field(default=None, min_length=1, max_length=100)
+    x: float | None = Field(default=None, ge=0.0, le=100.0)
+    y: float | None = Field(default=None, ge=0.0, le=100.0)
+    rotation: float | None = Field(default=None, ge=0.0, le=360.0)
+    zone_id: int | None = None
+    section_id: int | None = None
+    price: Decimal | None = None
+    is_admin_locked: bool | None = None
+
+
 class SeatBulkCreateResponse(BaseModel):
     created_count: int
     seats: list[SeatCreateResponse]
-

@@ -8,8 +8,12 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.main import app
-from app.models.venue import Section, Venue, VenueLayout
+from app.models.event import Event
+from app.models.seat import Seat
+from app.models.venue import Polygon, Section, Venue, VenueLayout
+from app.schemas.event import EventCreateRequest
 from app.schemas.venue import VenueCreateRequest
+from app.services.event_service import create_event_with_matrix
 
 
 @pytest.mark.asyncio
@@ -138,6 +142,216 @@ async def test_create_layout(db_session, admin_user):
 
 
 @pytest.mark.asyncio
+async def test_upload_raster_background_and_block_svg_parse(db_session, admin_user):
+    """Raster backgrounds should upload successfully but not be parseable as SVG."""
+    from app.api.deps import get_current_active_admin, get_db_session
+
+    venue = Venue(
+        name="Background Arena",
+        venue_type="arena",
+        created_by_user_id=admin_user.id,
+    )
+    db_session.add(venue)
+    await db_session.commit()
+    await db_session.refresh(venue)
+
+    async def override_get_db():
+        yield db_session
+
+    async def override_get_admin():
+        return admin_user
+
+    app.dependency_overrides[get_db_session] = override_get_db
+    app.dependency_overrides[get_current_active_admin] = override_get_admin
+
+    png_bytes = (
+        b"\x89PNG\r\n\x1a\n"
+        b"\x00\x00\x00\rIHDR"
+        b"\x00\x00\x00\x01\x00\x00\x00\x01\x08\x02\x00\x00\x00"
+        b"\x90wS\xde\x00\x00\x00\x0cIDATx\x9cc```\x00\x00\x00\x04\x00\x01"
+        b"\x0b\xe7\x02\x9d\x00\x00\x00\x00IEND\xaeB`\x82"
+    )
+
+    try:
+        from httpx import ASGITransport
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            upload_response = await client.post(
+                f"/api/admin/venues/{venue.id}/upload-background",
+                files={"file": ("floorplan.png", png_bytes, "image/png")},
+            )
+            process_response = await client.post(f"/api/admin/venues/{venue.id}/process")
+            detail_response = await client.get(f"/api/admin/venues/{venue.id}")
+
+        assert upload_response.status_code == status.HTTP_200_OK
+        assert upload_response.json()["background_type"] == "raster"
+        assert process_response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "only available" in process_response.json()["detail"]
+        assert detail_response.status_code == status.HTTP_200_OK
+        detail = detail_response.json()
+        assert detail["background_type"] == "raster"
+        assert detail["can_parse_background"] is False
+        assert detail["background_source"].startswith("data:image/png;base64,")
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_upload_svg_background_clears_processed_state(db_session, admin_user):
+    """Uploading a new SVG should replace the source and clear any stale processed background."""
+    from app.api.deps import get_current_active_admin, get_db_session
+
+    venue = Venue(
+        name="SVG Arena",
+        venue_type="arena",
+        created_by_user_id=admin_user.id,
+        svg_source="<svg viewBox='0 0 100 100'></svg>",
+        svg_processed="<svg viewBox='0 0 100 100'><circle cx='1' cy='1' r='1' /></svg>",
+    )
+    db_session.add(venue)
+    await db_session.commit()
+    await db_session.refresh(venue)
+
+    async def override_get_db():
+        yield db_session
+
+    async def override_get_admin():
+        return admin_user
+
+    app.dependency_overrides[get_db_session] = override_get_db
+    app.dependency_overrides[get_current_active_admin] = override_get_admin
+
+    svg_bytes = b"<svg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'><rect x='10' y='10' width='50' height='50' /></svg>"
+
+    try:
+        from httpx import ASGITransport
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            upload_response = await client.post(
+                f"/api/admin/venues/{venue.id}/upload-background",
+                files={"file": ("floorplan.svg", svg_bytes, "image/svg+xml")},
+            )
+            detail_response = await client.get(f"/api/admin/venues/{venue.id}")
+
+        assert upload_response.status_code == status.HTTP_200_OK
+        assert upload_response.json()["background_type"] == "svg"
+        detail = detail_response.json()
+        assert detail["background_type"] == "svg"
+        assert detail["can_parse_background"] is True
+        assert detail["background_processed"] is None
+        assert "<rect" in detail["background_source"]
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_event_seatmap_includes_background_and_polygons(db_session, admin_user):
+    """Customer seatmap should expose venue background and polygon overlays."""
+    from app.api.deps import get_db_session
+
+    venue = Venue(
+        name="Seatmap Arena",
+        venue_type="arena",
+        created_by_user_id=admin_user.id,
+        svg_source="<svg viewBox='0 0 1000 600'></svg>",
+        width=1000,
+        height=600,
+    )
+    db_session.add(venue)
+    await db_session.flush()
+
+    layout = VenueLayout(
+        venue_id=venue.id,
+        name="Main Layout",
+        sort_order=0,
+    )
+    db_session.add(layout)
+    await db_session.flush()
+
+    section = Section(
+        venue_layout_id=layout.id,
+        name="VIP",
+        code="VIP",
+        color="#ff4d4f",
+        price_base=150,
+        sort_order=0,
+    )
+    db_session.add(section)
+    await db_session.flush()
+
+    polygon = Polygon(
+        venue_id=venue.id,
+        venue_layout_id=layout.id,
+        section_id=section.id,
+        label="VIP Zone",
+        points=[{"x": 10, "y": 10}, {"x": 30, "y": 10}, {"x": 20, "y": 25}],
+    )
+    db_session.add(polygon)
+
+    event = Event(
+        slug="seatmap-arena-live",
+        title="Seatmap Arena Live",
+        description="Seat map payload test event",
+        category="concert",
+        venue="Seatmap Arena",
+        start_at=datetime.now(UTC) + timedelta(days=2),
+        end_at=datetime.now(UTC) + timedelta(days=2, hours=3),
+        created_by_user_id=admin_user.id,
+        venue_id=venue.id,
+        venue_layout_id=layout.id,
+        queue_enabled=True,
+    )
+    db_session.add(event)
+    await db_session.flush()
+
+    seat = Seat(
+        event_id=event.id,
+        zone_id=None,
+        row_index=1,
+        row_label="A",
+        seat_number=1,
+        seat_label="A1",
+        price=150,
+        x_coord=22.5,
+        y_coord=33.5,
+        rotation=15,
+        section_id=section.id,
+        venue_layout_id=layout.id,
+    )
+    db_session.add(seat)
+    await db_session.commit()
+
+    async def override_get_db():
+        yield db_session
+
+    app.dependency_overrides[get_db_session] = override_get_db
+
+    try:
+        from httpx import ASGITransport
+
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            response = await client.get(f"/api/events/{event.slug}/seatmap")
+
+        assert response.status_code == status.HTTP_200_OK
+        data = response.json()
+        assert data["event_slug"] == event.slug
+        assert data["queue_enabled"] is True
+        assert data["background"]["type"] == "svg"
+        assert data["background"]["width"] == 1000
+        assert data["background"]["height"] == 600
+        assert data["polygons"][0]["label"] == "VIP Zone"
+        assert data["polygons"][0]["section_name"] == "VIP"
+        assert data["seats"][0]["label"] == "A1"
+        assert data["seats"][0]["x"] == 22.5
+        assert data["seats"][0]["y"] == 33.5
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
 async def test_create_section(db_session, admin_user):
     """Test creating a section within a layout."""
     from app.api.deps import get_db_session, get_current_active_admin
@@ -190,5 +404,262 @@ async def test_create_section(db_session, admin_user):
         from decimal import Decimal
         assert Decimal(str(data["price_base"])) == Decimal("500.00")
         assert data["venue_layout_id"] == layout.id
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_create_and_list_layout_seats(db_session, admin_user):
+    """Test creating venue template seats and listing them by layout."""
+    from app.api.deps import get_current_active_admin, get_db_session
+
+    venue = Venue(
+        name="Seat Builder Arena",
+        venue_type="arena",
+        created_by_user_id=admin_user.id,
+    )
+    db_session.add(venue)
+    await db_session.commit()
+    await db_session.refresh(venue)
+
+    layout = VenueLayout(
+        venue_id=venue.id,
+        name="Main Floor",
+    )
+    db_session.add(layout)
+    await db_session.commit()
+    await db_session.refresh(layout)
+
+    section = Section(
+        venue_layout_id=layout.id,
+        name="VIP",
+        code="VIP",
+        color="#ff0000",
+        price_base=500,
+        sort_order=1,
+    )
+    db_session.add(section)
+    await db_session.commit()
+    await db_session.refresh(section)
+
+    async def override_get_db():
+        yield db_session
+
+    async def override_get_admin():
+        return admin_user
+
+    app.dependency_overrides[get_db_session] = override_get_db
+    app.dependency_overrides[get_current_active_admin] = override_get_admin
+
+    try:
+        from httpx import ASGITransport
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            create_response = await client.post(
+                f"/api/admin/venues/{venue.id}/seats/single",
+                json={
+                    "layout_id": layout.id,
+                    "section_id": section.id,
+                    "label": "A1",
+                    "x": 12.5,
+                    "y": 18.75,
+                    "rotation": 0,
+                    "is_admin_locked": True,
+                },
+            )
+            list_response = await client.get(f"/api/admin/venues/{venue.id}/seats", params={"layout_id": layout.id})
+
+        assert create_response.status_code == status.HTTP_200_OK
+        created = create_response.json()
+        assert created["label"] == "A1"
+        assert created["section_id"] == section.id
+        assert created["is_admin_locked"] is True
+        assert list_response.status_code == status.HTTP_200_OK
+        seats = list_response.json()
+        assert len(seats) == 1
+        assert seats[0]["label"] == "A1"
+        assert seats[0]["section_name"] == "VIP"
+        assert seats[0]["is_admin_locked"] is True
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_create_event_from_venue_layout_clones_template_seats(db_session, admin_user):
+    """Event creation should support venue-layout seat maps without classic zones."""
+
+    venue = Venue(
+        name="Venue Mode Arena",
+        venue_type="arena",
+        created_by_user_id=admin_user.id,
+    )
+    db_session.add(venue)
+    await db_session.commit()
+    await db_session.refresh(venue)
+
+    layout = VenueLayout(
+        venue_id=venue.id,
+        name="Main Layout",
+    )
+    db_session.add(layout)
+    await db_session.commit()
+    await db_session.refresh(layout)
+
+    section = Section(
+        venue_layout_id=layout.id,
+        name="VIP",
+        code="VIP",
+        color="#ff0000",
+        price_base=750,
+        sort_order=1,
+    )
+    db_session.add(section)
+    await db_session.commit()
+    await db_session.refresh(section)
+
+    db_session.add_all(
+        [
+            Seat(
+                event_id=None,
+                zone_id=None,
+                row_index=1,
+                row_label="A",
+                seat_number=1,
+                seat_label="A1",
+                price=0,
+                x_coord=10,
+                y_coord=20,
+                rotation=0,
+                section_id=section.id,
+                venue_layout_id=layout.id,
+                is_admin_locked=True,
+            ),
+            Seat(
+                event_id=None,
+                zone_id=None,
+                row_index=1,
+                row_label="A",
+                seat_number=2,
+                seat_label="A2",
+                price=0,
+                x_coord=14,
+                y_coord=20,
+                rotation=0,
+                section_id=section.id,
+                venue_layout_id=layout.id,
+                is_admin_locked=False,
+            ),
+        ]
+    )
+    await db_session.commit()
+
+    payload = EventCreateRequest(
+        title="Venue Seatmap Event",
+        description="Event that uses a venue layout template",
+        category="Concert",
+        venue=venue.name,
+        start_at=datetime.now(UTC) + timedelta(days=1),
+        end_at=datetime.now(UTC) + timedelta(days=1, hours=2),
+        venue_id=venue.id,
+        venue_layout_id=layout.id,
+        zones=[],
+    )
+
+    event = await create_event_with_matrix(db_session, admin_user.id, payload)
+    await db_session.commit()
+    await db_session.refresh(event)
+
+    created_event = await db_session.scalar(select(Event).where(Event.id == event.id))
+    assert created_event is not None
+    assert created_event.venue_id == venue.id
+    assert created_event.venue_layout_id == layout.id
+
+    event_seats = list(
+        await db_session.scalars(
+            select(Seat).where(Seat.event_id == event.id).order_by(Seat.seat_label.asc())
+        )
+    )
+    assert [seat.seat_label for seat in event_seats] == ["A1", "A2"]
+    assert all(seat.zone_id is None for seat in event_seats)
+    assert all(seat.venue_layout_id == layout.id for seat in event_seats)
+    assert all(float(seat.price) == 750.0 for seat in event_seats)
+    assert event_seats[0].is_admin_locked is True
+    assert event_seats[0].status.value == "locked"
+    assert event_seats[1].is_admin_locked is False
+    assert event_seats[1].status.value == "available"
+
+
+@pytest.mark.asyncio
+async def test_create_and_list_polygons(db_session, admin_user):
+    """Test saving polygon zones for a venue layout."""
+    from app.api.deps import get_current_active_admin, get_db_session
+
+    venue = Venue(
+        name="Polygon Arena",
+        venue_type="arena",
+        created_by_user_id=admin_user.id,
+    )
+    db_session.add(venue)
+    await db_session.commit()
+    await db_session.refresh(venue)
+
+    layout = VenueLayout(
+        venue_id=venue.id,
+        name="Main Floor",
+    )
+    db_session.add(layout)
+    await db_session.commit()
+    await db_session.refresh(layout)
+
+    section = Section(
+        venue_layout_id=layout.id,
+        name="Premium",
+        code="PREM",
+        color="#00ffcc",
+        price_base=250,
+        sort_order=1,
+    )
+    db_session.add(section)
+    await db_session.commit()
+    await db_session.refresh(section)
+
+    async def override_get_db():
+        yield db_session
+
+    async def override_get_admin():
+        return admin_user
+
+    app.dependency_overrides[get_db_session] = override_get_db
+    app.dependency_overrides[get_current_active_admin] = override_get_admin
+
+    try:
+        from httpx import ASGITransport
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            create_response = await client.post(
+                f"/api/admin/venues/{venue.id}/polygons",
+                json={
+                    "layout_id": layout.id,
+                    "section_id": section.id,
+                    "label": "Premium Zone",
+                    "points": [
+                        {"x": 10, "y": 10},
+                        {"x": 30, "y": 10},
+                        {"x": 25, "y": 25},
+                    ],
+                },
+            )
+            list_response = await client.get(f"/api/admin/venues/{venue.id}/polygons", params={"layout_id": layout.id})
+
+        assert create_response.status_code == status.HTTP_200_OK
+        created = create_response.json()
+        assert created["label"] == "Premium Zone"
+        assert created["section_id"] == section.id
+
+        assert list_response.status_code == status.HTTP_200_OK
+        polygons = list_response.json()
+        assert len(polygons) == 1
+        assert polygons[0]["section_name"] == "Premium"
+        assert len(polygons[0]["points"]) == 3
     finally:
         app.dependency_overrides.clear()

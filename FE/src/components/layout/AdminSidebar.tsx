@@ -54,7 +54,7 @@ export function AdminSidebar() {
           <NavLink
             key={href}
             to={href}
-            className={({ isActive }) => {
+            className={() => {
               // Override isActive logic for exact matching
               const isActuallyActive = isActiveLink(href, exact ?? false);
               return cn(

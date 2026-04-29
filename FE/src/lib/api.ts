@@ -31,8 +31,10 @@ import type {
   RevenuePoint,
   SeatMatrixResponse,
   TicketItem,
+  VenuePolygonItem,
   VenueDetail,
   VenueLayoutItem,
+  VenueSeatItem,
   VenueSectionItem,
   VenueSummary,
   SeatMapResponse,
@@ -296,11 +298,17 @@ export const adminApi = {
     const response = await api.delete(`/admin/venues/${venueId}`)
     return response.data
   },
-  async uploadVenueSvg(venueId: number, file: File) {
+  async uploadVenueBackground(venueId: number, file: File) {
     const formData = new FormData()
     formData.append('file', file)
-    const response = await api.post<{ detail: string; venue_id: number }>(`/admin/venues/${venueId}/upload-svg`, formData)
+    const response = await api.post<{ detail: string; venue_id: number; background_type: string; content_type: string }>(
+      `/admin/venues/${venueId}/upload-background`,
+      formData,
+    )
     return response.data
+  },
+  async uploadVenueSvg(venueId: number, file: File) {
+    return this.uploadVenueBackground(venueId, file)
   },
   async processVenueSvg(venueId: number) {
     const response = await api.post<{ venue_id: number; seat_count: number; sections_detected: number; width: number; height: number; seats: unknown[]; sections: unknown[] }>(`/admin/venues/${venueId}/process`)
@@ -346,6 +354,77 @@ export const adminApi = {
   },
   async deleteSection(sectionId: number) {
     const response = await api.delete(`/admin/sections/${sectionId}`)
+    return response.data
+  },
+  async listVenueSeats(venueId: number, layoutId?: number | null) {
+    return withRetry(() =>
+      api.get<VenueSeatItem[]>(`/admin/venues/${venueId}/seats`, {
+        params: { layout_id: layoutId ?? undefined },
+      }),
+    )
+  },
+  async createVenueSeatSingle(
+    venueId: number,
+    payload: { layout_id?: number | null; label: string; x: number; y: number; rotation?: number; section_id?: number | null; is_admin_locked?: boolean },
+  ) {
+    const response = await api.post<VenueSeatItem>(`/admin/venues/${venueId}/seats/single`, payload)
+    return response.data
+  },
+  async createVenueSeatBulk(
+    venueId: number,
+    payload: {
+      layout_id?: number | null
+      section_id?: number | null
+      pattern: 'straight' | 'arc' | 'zigzag'
+      rows: number
+      cols: number
+      gap_x: number
+      gap_y: number
+      start_x: number
+      start_y: number
+      label_prefix: string
+      arc_config?: { center_x: number; center_y: number; radius: number; start_angle: number; end_angle: number } | null
+    },
+  ) {
+    const response = await api.post<{ created_count: number; seats: VenueSeatItem[] }>(`/admin/venues/${venueId}/seats/bulk`, payload)
+    return response.data
+  },
+  async updateVenueSeat(
+    seatId: number,
+    payload: Partial<{ label: string; x: number; y: number; rotation: number; section_id: number | null; is_admin_locked: boolean }>,
+  ) {
+    const response = await api.patch<VenueSeatItem>(`/admin/seats/${seatId}`, payload)
+    return response.data
+  },
+  async deleteVenueSeat(seatId: number) {
+    const response = await api.delete<ApiMessage>(`/admin/seats/${seatId}`)
+    return response.data
+  },
+  async listVenuePolygons(venueId: number, layoutId?: number | null) {
+    return withRetry(() =>
+      api.get<VenuePolygonItem[]>(`/admin/venues/${venueId}/polygons`, {
+        params: { layout_id: layoutId ?? undefined },
+      }),
+    )
+  },
+  async createVenuePolygon(
+    venueId: number,
+    payload: { layout_id?: number | null; section_id?: number | null; label?: string | null; points: Array<{ x: number; y: number }> },
+  ) {
+    const response = await api.post<VenuePolygonItem>(`/admin/venues/${venueId}/polygons`, payload)
+    return response.data
+  },
+  async updateVenuePolygon(
+    polygonId: number,
+    payload: Partial<{ section_id: number | null; label: string | null; points: Array<{ x: number; y: number }> }>,
+  ) {
+    const response = await api.patch<VenuePolygonItem>(`/admin/polygons/${polygonId}`, payload)
+    return response.data
+  },
+  async deleteVenuePolygon(polygonId: number) {
+    const response = await api.delete<ApiMessage>(`/admin/polygons/${polygonId}`)
+    return response.data
+  },
   async gameConfigs(eventKey: string | number) {
     return withRetry(() => api.get<AdminGameConfig[]>(`/admin/games/${eventKey}/configs`))
   },
@@ -402,7 +481,7 @@ export const adminApi = {
   },
   async createEventSeatSingle(
     eventKey: string | number,
-    payload: { seat_label: string; x: number; y: number; rotation?: number; zone_id?: number | null; section_id?: number | null; price?: number | null },
+    payload: { seat_label: string; x: number; y: number; rotation?: number; zone_id?: number | null; section_id?: number | null; price?: number | null; is_admin_locked?: boolean },
   ) {
     const response = await api.post(`/admin/events/${eventKey}/seats/single`, payload)
     return response.data
@@ -424,6 +503,18 @@ export const adminApi = {
     },
   ) {
     const response = await api.post(`/admin/events/${eventKey}/seats/bulk`, payload)
+    return response.data
+  },
+  async updateEventSeat(
+    eventKey: string | number,
+    seatId: number,
+    payload: Partial<{ seat_label: string; x: number; y: number; rotation: number; zone_id: number | null; section_id: number | null; price: number | null; is_admin_locked: boolean }>,
+  ) {
+    const response = await api.patch(`/admin/events/${eventKey}/seats/${seatId}`, payload)
+    return response.data
+  },
+  async deleteEventSeat(eventKey: string | number, seatId: number) {
+    const response = await api.delete<ApiMessage>(`/admin/events/${eventKey}/seats/${seatId}`)
     return response.data
   },
 }

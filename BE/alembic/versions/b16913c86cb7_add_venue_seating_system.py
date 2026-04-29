@@ -76,6 +76,27 @@ def upgrade() -> None:
     op.create_index(op.f('ix_ticket_rush_sections_id'), 'sections', ['id'], unique=False, schema='ticket_rush')
     op.create_index(op.f('ix_ticket_rush_sections_venue_layout_id'), 'sections', ['venue_layout_id'], unique=False, schema='ticket_rush')
 
+    # Create polygons table
+    op.create_table('polygons',
+        sa.Column('id', sa.Integer(), nullable=False),
+        sa.Column('venue_id', sa.Integer(), nullable=False),
+        sa.Column('venue_layout_id', sa.Integer(), nullable=False),
+        sa.Column('section_id', sa.Integer(), nullable=True),
+        sa.Column('label', sa.String(length=100), nullable=True),
+        sa.Column('points', sa.JSON(), nullable=False),
+        sa.Column('created_at', sa.DateTime(timezone=True), nullable=False),
+        sa.Column('updated_at', sa.DateTime(timezone=True), nullable=False),
+        sa.ForeignKeyConstraint(['section_id'], ['ticket_rush.sections.id'], name=op.f('fk_polygons_section_id_sections'), ondelete='SET NULL'),
+        sa.ForeignKeyConstraint(['venue_id'], ['ticket_rush.venues.id'], name=op.f('fk_polygons_venue_id_venues'), ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['venue_layout_id'], ['ticket_rush.venue_layouts.id'], name=op.f('fk_polygons_venue_layout_id_venue_layouts'), ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('id', name=op.f('pk_polygons')),
+        schema='ticket_rush'
+    )
+    op.create_index(op.f('ix_ticket_rush_polygons_id'), 'polygons', ['id'], unique=False, schema='ticket_rush')
+    op.create_index(op.f('ix_ticket_rush_polygons_section_id'), 'polygons', ['section_id'], unique=False, schema='ticket_rush')
+    op.create_index(op.f('ix_ticket_rush_polygons_venue_id'), 'polygons', ['venue_id'], unique=False, schema='ticket_rush')
+    op.create_index(op.f('ix_ticket_rush_polygons_venue_layout_id'), 'polygons', ['venue_layout_id'], unique=False, schema='ticket_rush')
+
     # Add columns to events
     op.add_column('events', sa.Column('venue_id', sa.Integer(), nullable=True), schema='ticket_rush')
     op.add_column('events', sa.Column('venue_layout_id', sa.Integer(), nullable=True), schema='ticket_rush')
@@ -90,6 +111,8 @@ def upgrade() -> None:
     op.add_column('seats', sa.Column('rotation', sa.Numeric(precision=5, scale=2), nullable=False, server_default='0'), schema='ticket_rush')
     op.add_column('seats', sa.Column('section_id', sa.Integer(), nullable=True), schema='ticket_rush')
     op.add_column('seats', sa.Column('venue_layout_id', sa.Integer(), nullable=True), schema='ticket_rush')
+    op.alter_column('seats', 'event_id', existing_type=sa.Integer(), nullable=True, schema='ticket_rush')
+    op.alter_column('seats', 'zone_id', existing_type=sa.Integer(), nullable=True, schema='ticket_rush')
     op.create_index(op.f('ix_ticket_rush_seats_section_id'), 'seats', ['section_id'], unique=False, schema='ticket_rush')
     op.create_index(op.f('ix_ticket_rush_seats_venue_layout_id'), 'seats', ['venue_layout_id'], unique=False, schema='ticket_rush')
     op.create_foreign_key(op.f('fk_seats_venue_layout_id_venue_layouts'), 'seats', 'venue_layouts', ['venue_layout_id'], ['id'], source_schema='ticket_rush', referent_schema='ticket_rush')
@@ -103,6 +126,8 @@ def downgrade() -> None:
     op.drop_constraint(op.f('fk_seats_venue_layout_id_venue_layouts'), 'seats', schema='ticket_rush', type_='foreignkey')
     op.drop_index(op.f('ix_ticket_rush_seats_venue_layout_id'), table_name='seats', schema='ticket_rush')
     op.drop_index(op.f('ix_ticket_rush_seats_section_id'), table_name='seats', schema='ticket_rush')
+    op.alter_column('seats', 'zone_id', existing_type=sa.Integer(), nullable=False, schema='ticket_rush')
+    op.alter_column('seats', 'event_id', existing_type=sa.Integer(), nullable=False, schema='ticket_rush')
     op.drop_column('seats', 'venue_layout_id', schema='ticket_rush')
     op.drop_column('seats', 'section_id', schema='ticket_rush')
     op.drop_column('seats', 'rotation', schema='ticket_rush')
@@ -116,6 +141,13 @@ def downgrade() -> None:
     op.drop_index(op.f('ix_ticket_rush_events_venue_id'), table_name='events', schema='ticket_rush')
     op.drop_column('events', 'venue_layout_id', schema='ticket_rush')
     op.drop_column('events', 'venue_id', schema='ticket_rush')
+
+    # Drop sections
+    op.drop_index(op.f('ix_ticket_rush_polygons_venue_layout_id'), table_name='polygons', schema='ticket_rush')
+    op.drop_index(op.f('ix_ticket_rush_polygons_venue_id'), table_name='polygons', schema='ticket_rush')
+    op.drop_index(op.f('ix_ticket_rush_polygons_section_id'), table_name='polygons', schema='ticket_rush')
+    op.drop_index(op.f('ix_ticket_rush_polygons_id'), table_name='polygons', schema='ticket_rush')
+    op.drop_table('polygons', schema='ticket_rush')
 
     # Drop sections
     op.drop_index(op.f('ix_ticket_rush_sections_venue_layout_id'), table_name='sections', schema='ticket_rush')

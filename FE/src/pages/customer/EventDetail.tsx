@@ -45,7 +45,6 @@ export default function EventDetail() {
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [gameMessage, setGameMessage] = useState<string>('')
-  const [gameLoading, setGameLoading] = useState(false)
   const [showConfetti, setShowConfetti] = useState(false)
 
   async function fetchReviews(nextOffset = 0, append = false) {
@@ -126,12 +125,11 @@ export default function EventDetail() {
   }
 
   const playGame = async (gameType: 'wheel' | 'scratch'): Promise<GamePlayResponse | null> => {
-    if (!event) return
+    if (!event) return null
     if (!isAuthenticated) {
       navigate('/login')
-      return
+      return null
     }
-    setGameLoading(true)
     setGameMessage('')
     try {
       const sign = await gameApi.sign(event.id, gameType)
@@ -167,8 +165,6 @@ export default function EventDetail() {
     } catch (e) {
       setGameMessage(extractApiErrorMessage(e, 'Khong the choi game luc nay'))
       return null
-    } finally {
-      setGameLoading(false)
     }
   }
 

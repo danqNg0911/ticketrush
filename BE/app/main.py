@@ -46,6 +46,42 @@ async def _ensure_cover_image_url_text_column() -> None:
             )
 
 
+async def _ensure_seats_admin_lock_column() -> None:
+    """Add seats.is_admin_locked for older databases without a migration run."""
+
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE IF EXISTS ticket_rush.seats
+                ADD COLUMN IF NOT EXISTS is_admin_locked BOOLEAN NOT NULL DEFAULT FALSE
+                """
+            )
+        )
+
+
+async def _ensure_template_seat_columns_are_nullable() -> None:
+    """Allow venue template seats to exist without binding to one event."""
+
+    async with engine.begin() as conn:
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE IF EXISTS ticket_rush.seats
+                ALTER COLUMN event_id DROP NOT NULL
+                """
+            )
+        )
+        await conn.execute(
+            text(
+                """
+                ALTER TABLE IF EXISTS ticket_rush.seats
+                ALTER COLUMN zone_id DROP NOT NULL
+                """
+            )
+        )
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     """Initialize schema/seed data and start background workers."""
@@ -57,6 +93,8 @@ async def lifespan(_: FastAPI):
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all, checkfirst=True)
     await _ensure_cover_image_url_text_column()
+    await _ensure_seats_admin_lock_column()
+    await _ensure_template_seat_columns_are_nullable()
 
     from app.core.db import AsyncSessionLocal
 

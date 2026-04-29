@@ -53,6 +53,10 @@ class VenueDetailResponse(VenueListResponse):
     address: str | None
     width: int
     height: int
+    background_source: str | None = None
+    background_processed: str | None = None
+    background_type: str | None = None
+    can_parse_background: bool = False
     svg_source: str | None
     svg_processed: str | None
     created_by_user_id: int
@@ -132,3 +136,91 @@ class SectionDetailResponse(BaseModel):
     updated_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PolygonPoint(BaseModel):
+    x: float = Field(ge=0.0, le=100.0)
+    y: float = Field(ge=0.0, le=100.0)
+
+
+class ArcConfig(BaseModel):
+    center_x: float = Field(ge=0.0, le=100.0)
+    center_y: float = Field(ge=0.0, le=100.0)
+    radius: float = Field(gt=0.0)
+    start_angle: float
+    end_angle: float
+
+
+class VenueSeatSingleCreateRequest(BaseModel):
+    layout_id: int | None = Field(default=None, ge=1)
+    label: str = Field(min_length=1, max_length=100)
+    x: float = Field(ge=0.0, le=100.0)
+    y: float = Field(ge=0.0, le=100.0)
+    rotation: float = Field(default=0.0, ge=0.0, le=360.0)
+    section_id: int | None = Field(default=None, ge=1)
+    is_admin_locked: bool = False
+
+
+class VenueSeatBulkCreateRequest(BaseModel):
+    layout_id: int | None = Field(default=None, ge=1)
+    section_id: int | None = Field(default=None, ge=1)
+    pattern: str = Field(default="straight", min_length=1, max_length=20)
+    rows: int = Field(default=1, ge=1)
+    cols: int = Field(default=1, ge=1)
+    gap_x: float = Field(default=3.0, ge=0.0)
+    gap_y: float = Field(default=3.0, ge=0.0)
+    start_x: float = Field(default=0.0, ge=0.0, le=100.0)
+    start_y: float = Field(default=0.0, ge=0.0, le=100.0)
+    label_prefix: str = Field(default="A", min_length=1, max_length=12)
+    arc_config: ArcConfig | None = None
+
+
+class VenueSeatUpdateRequest(BaseModel):
+    label: str | None = Field(default=None, min_length=1, max_length=100)
+    x: float | None = Field(default=None, ge=0.0, le=100.0)
+    y: float | None = Field(default=None, ge=0.0, le=100.0)
+    rotation: float | None = Field(default=None, ge=0.0, le=360.0)
+    section_id: int | None = Field(default=None, ge=1)
+    is_admin_locked: bool | None = None
+
+
+class VenueSeatResponse(BaseModel):
+    id: int
+    venue_layout_id: int | None
+    section_id: int | None
+    section_name: str | None = None
+    label: str
+    x: float | None
+    y: float | None
+    rotation: float
+    is_admin_locked: bool = False
+
+
+class VenueSeatBulkCreateResponse(BaseModel):
+    created_count: int
+    seats: list[VenueSeatResponse]
+
+
+class PolygonCreateRequest(BaseModel):
+    layout_id: int | None = Field(default=None, ge=1)
+    section_id: int | None = Field(default=None, ge=1)
+    label: str | None = Field(default=None, max_length=100)
+    points: list[PolygonPoint] = Field(min_length=3)
+
+
+class PolygonUpdateRequest(BaseModel):
+    section_id: int | None = Field(default=None, ge=1)
+    label: str | None = Field(default=None, max_length=100)
+    points: list[PolygonPoint] | None = Field(default=None, min_length=3)
+
+
+class PolygonResponse(BaseModel):
+    id: int
+    venue_id: int
+    venue_layout_id: int
+    section_id: int | None
+    section_name: str | None = None
+    label: str | None
+    points: list[PolygonPoint]
+    created_at: datetime
+    updated_at: datetime

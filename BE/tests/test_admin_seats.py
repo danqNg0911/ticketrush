@@ -3,6 +3,7 @@
 import pytest
 from fastapi import status
 from httpx import AsyncClient
+from sqlalchemy import select
 
 from app.main import app
 from app.models.seat import Seat
@@ -142,5 +143,40 @@ async def test_create_bulk_arc(db_session, admin_user, sample_event):
         data = resp.json()
         assert data["created_count"] >= 1
         assert all("-" in s["seat_label"] or s["seat_label"].startswith("A") for s in data["seats"]) 
+    finally:
+        app.dependency_overrides.clear()
+
+
+@pytest.mark.asyncio
+async def test_update_event_seat_admin_lock(db_session, admin_user, sample_event):
+    from app.api.deps import get_db_session, get_current_active_admin
+
+    async def override_get_db():
+        yield db_session
+
+    async def override_get_admin():
+        return admin_user
+
+    app.dependency_overrides[get_db_session] = override_get_db
+    app.dependency_overrides[get_current_active_admin] = override_get_admin
+
+    try:
+        seat = await db_session.scalar(select(Seat).where(Seat.event_id == sample_event.id).limit(1))
+        assert seat is not None
+
+        from httpx import ASGITransport
+        transport = ASGITransport(app=app)
+        async with AsyncClient(transport=transport, base_url="http://test") as client:
+            resp = await client.patch(
+                f"/api/admin/events/{sample_event.slug}/seats/{seat.id}",
+                json={"is_admin_locked": True},
+            )
+
+        assert resp.status_code == status.HTTP_200_OK
+        refreshed = await db_session.get(Seat, seat.id)
+        assert refreshed is not None
+        assert refreshed.is_admin_locked is True
+        assert refreshed.status.value == "locked"
+        assert refreshed.locked_by_user_id is None
     finally:
         app.dependency_overrides.clear()

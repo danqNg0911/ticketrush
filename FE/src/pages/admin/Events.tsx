@@ -5,8 +5,8 @@ import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
 import { Modal } from '@/components/ui/Modal'
 import { adminApi, extractApiErrorMessage } from '@/lib/api'
-import type { EventCard, EventStatus, SeatZone } from '@/types'
-import { Calendar, Clock, Edit, Filter, MapPin, Search, Trash2, Users, LayoutGrid, Palette, Plus, Check, Loader2, Wand2 } from 'lucide-react'
+import type { EventCard, EventStatus, SeatZone, VenueLayoutItem, VenueSummary } from '@/types'
+import { Calendar, Edit, Filter, MapPin, Search, Trash2, Users, LayoutGrid, Palette, Plus, Check, Loader2, Wand2 } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { Listbox } from '@headlessui/react';
 
@@ -30,6 +30,9 @@ interface EventFormState {
   zone_color: string
   cover_image_url: string
   image_file: File | null
+  seat_map_mode: 'classic' | 'venue'
+  venue_id: string
+  venue_layout_id: string
 }
 
 const INITIAL_FORM: EventFormState = {
@@ -52,6 +55,9 @@ const INITIAL_FORM: EventFormState = {
   zone_color: '#024ddf',
   cover_image_url: '',
   image_file: null,
+  seat_map_mode: 'classic',
+  venue_id: '',
+  venue_layout_id: '',
 }
 
 function toDatetimeLocal(value: string) {
@@ -125,6 +131,9 @@ export default function AdminEvents() {
   const [form, setForm] = useState(INITIAL_FORM)
   const [error, setError] = useState<string | null>(null)
   const [formError, setFormError] = useState<string | null>(null)
+  const [venues, setVenues] = useState<VenueSummary[]>([])
+  const [venueLayouts, setVenueLayouts] = useState<VenueLayoutItem[]>([])
+  const [venueOptionsLoading, setVenueOptionsLoading] = useState(false)
 
   // NEW: Zone Management States
   const [isZoneModalOpen, setIsZoneModalOpen] = useState(false)
@@ -171,10 +180,25 @@ export default function AdminEvents() {
     void loadEvents()
   }, [])
 
+  useEffect(() => {
+    void (async () => {
+      setVenueOptionsLoading(true)
+      try {
+        const venueList = await adminApi.listVenues({ limit: 200 })
+        setVenues(venueList)
+      } catch {
+        setVenues([])
+      } finally {
+        setVenueOptionsLoading(false)
+      }
+    })()
+  }, [])
+
   // Event CRUD Handlers
   function openCreateModal() {
     setEditingEvent(null)
     setForm(INITIAL_FORM)
+    setVenueLayouts([])
     setFormError(null)
     setIsModalOpen(true)
   }
@@ -193,8 +217,32 @@ export default function AdminEvents() {
       status: event.status,
       queue_enabled: event.queue_enabled,
       cover_image_url: event.cover_image_url || '',
+      seat_map_mode: event.venue_layout_id ? 'venue' : 'classic',
+      venue_id: event.venue_id ? String(event.venue_id) : '',
+      venue_layout_id: event.venue_layout_id ? String(event.venue_layout_id) : '',
     })
+    setVenueLayouts([])
     setIsModalOpen(true)
+  }
+
+  async function handleVenueChange(venueId: string) {
+    setForm((previous) => ({
+      ...previous,
+      venue_id: venueId,
+      venue_layout_id: '',
+    }))
+
+    if (!venueId) {
+      setVenueLayouts([])
+      return
+    }
+
+    try {
+      const layouts = await adminApi.listLayouts(Number(venueId))
+      setVenueLayouts(layouts)
+    } catch {
+      setVenueLayouts([])
+    }
   }
 
   async function handleDeleteEvent(eventKey: string) {
@@ -209,8 +257,16 @@ export default function AdminEvents() {
   }
 
   async function handleSubmit() {
-    if (!form.title || !form.description || !form.category || !form.venue || !form.start_at || !form.end_at) {
+    if (!form.title || !form.description || !form.category || !form.start_at || !form.end_at) {
       setFormError('Vui lòng nhập đầy đủ thông tin bắt buộc.')
+      return
+    }
+    if (form.seat_map_mode === 'classic' && !form.venue) {
+      setFormError('Vui lòng nhập venue cho sự kiện.')
+      return
+    }
+    if (!editingEvent && form.seat_map_mode === 'venue' && (!form.venue_id || !form.venue_layout_id)) {
+      setFormError('Vui lòng chọn venue và layout để dùng Venue Seat Map.')
       return
     }
     setSaving(true)
@@ -227,7 +283,10 @@ export default function AdminEvents() {
         title: form.title,
         description: form.description,
         category: form.category,
-        venue: form.venue,
+        venue:
+          form.seat_map_mode === 'venue'
+            ? venues.find((venue) => venue.id === Number(form.venue_id))?.name || form.venue
+            : form.venue,
         start_at: new Date(form.start_at).toISOString(),
         end_at: new Date(form.end_at).toISOString(),
         status: form.status,
@@ -243,19 +302,28 @@ export default function AdminEvents() {
         const updated = await adminApi.updateEvent(editingEvent.slug, basePayload)
         setEvents((previous) => previous.map((event) => (event.id === updated.id ? updated : event)))
       } else {
-        const created = await adminApi.createEvent({
-          ...basePayload,
-          zones: [
-            {
-              code: form.zone_code,
-              name: form.zone_name,
-              row_count: Number(form.row_count),
-              seats_per_row: Number(form.seats_per_row),
-              price: Number(form.zone_price),
-              color: form.zone_color,
-            },
-          ],
-        })
+        const payload =
+          form.seat_map_mode === 'venue'
+            ? {
+              ...basePayload,
+              venue_id: Number(form.venue_id),
+              venue_layout_id: Number(form.venue_layout_id),
+              zones: [],
+            }
+            : {
+              ...basePayload,
+              zones: [
+                {
+                  code: form.zone_code,
+                  name: form.zone_name,
+                  row_count: Number(form.row_count),
+                  seats_per_row: Number(form.seats_per_row),
+                  price: Number(form.zone_price),
+                  color: form.zone_color,
+                },
+              ],
+            }
+        const created = await adminApi.createEvent(payload)
         setEvents((previous) => [created, ...previous])
       }
 
@@ -432,6 +500,7 @@ export default function AdminEvents() {
                   <div className="flex flex-wrap items-center gap-2">
                     <Badge variant="outline" size="sm">{event.category}</Badge>
                     <Badge variant="default" size="sm">/{event.slug}</Badge>
+                    <Badge variant="outline" size="sm">{event.venue_layout_id ? 'Venue Map' : 'Classic Grid'}</Badge>
                   </div>
 
                   <div className="flex justify-end gap-2 pt-2">
@@ -498,7 +567,12 @@ export default function AdminEvents() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">Venue</label>
-              <Input value={form.venue} onChange={(event) => setForm({ ...form, venue: event.target.value })} />
+              <Input
+                value={form.venue}
+                disabled={!editingEvent && form.seat_map_mode === 'venue'}
+                onChange={(event) => setForm({ ...form, venue: event.target.value })}
+                placeholder={!editingEvent && form.seat_map_mode === 'venue' ? 'Sẽ dùng tên venue đã chọn' : undefined}
+              />
             </div>
           </div>
           <div className="grid grid-cols-2 gap-4">
@@ -570,20 +644,74 @@ export default function AdminEvents() {
           {!editingEvent && (
             <>
               <div className="pt-3 border-t border-white/10">
-                <p className="text-sm text-gray-300 mb-3">Zone khởi tạo (bắt buộc khi tạo mới)</p>
-                <div className="grid grid-cols-2 gap-4">
-                  <div><label className="block text-sm font-medium text-gray-300 mb-2">Zone code</label><Input value={form.zone_code} onChange={(event) => setForm({ ...form, zone_code: event.target.value })} /></div>
-                  <div><label className="block text-sm font-medium text-gray-300 mb-2">Zone name</label><Input value={form.zone_name} onChange={(event) => setForm({ ...form, zone_name: event.target.value })} /></div>
+                <p className="text-sm text-gray-300 mb-3">Seat map mode</p>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, seat_map_mode: 'classic', venue_id: '', venue_layout_id: '' })}
+                    className={`rounded-xl border px-4 py-4 text-left transition ${form.seat_map_mode === 'classic' ? 'border-brand-red/40 bg-brand-red/10' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}
+                  >
+                    <p className="font-semibold text-white">Classic Grid</p>
+                    <p className="mt-1 text-sm text-slate-400">Tạo event từ zone cũ theo rows x seats/row.</p>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setForm({ ...form, seat_map_mode: 'venue' })}
+                    className={`rounded-xl border px-4 py-4 text-left transition ${form.seat_map_mode === 'venue' ? 'border-brand-red/40 bg-brand-red/10' : 'border-white/10 bg-white/5 hover:bg-white/10'}`}
+                  >
+                    <p className="font-semibold text-white">Venue Seat Map</p>
+                    <p className="mt-1 text-sm text-slate-400">Dùng layout đã dựng trong Venue Studio theo docs seat map.</p>
+                  </button>
                 </div>
-                <div className="grid grid-cols-3 gap-4 mt-4">
-                  <div><label className="block text-sm font-medium text-gray-300 mb-2">Rows</label><Input type="number" min={1} value={form.row_count} onChange={(event) => setForm({ ...form, row_count: event.target.value })} /></div>
-                  <div><label className="block text-sm font-medium text-gray-300 mb-2">Seats/row</label><Input type="number" min={1} value={form.seats_per_row} onChange={(event) => setForm({ ...form, seats_per_row: event.target.value })} /></div>
-                  <div><label className="block text-sm font-medium text-gray-300 mb-2">Price</label><Input type="number" min={1} value={form.zone_price} onChange={(event) => setForm({ ...form, zone_price: event.target.value })} /></div>
-                </div>
-                <div className="mt-4">
-                  <label className="block text-sm font-medium text-gray-300 mb-2">Zone color</label>
-                  <Input value={form.zone_color} onChange={(event) => setForm({ ...form, zone_color: event.target.value })} />
-                </div>
+
+                {form.seat_map_mode === 'venue' ? (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">Venue template</label>
+                      <select
+                        className="w-full rounded-lg border bg-space-700/50 border-white/20 px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-red"
+                        value={form.venue_id}
+                        onChange={(event) => void handleVenueChange(event.target.value)}
+                      >
+                        <option value="">{venueOptionsLoading ? 'Đang tải venue...' : 'Chọn venue'}</option>
+                        {venues.map((venue) => (
+                          <option key={venue.id} value={venue.id}>{venue.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-300 mb-2">Layout</label>
+                      <select
+                        className="w-full rounded-lg border bg-space-700/50 border-white/20 px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-red"
+                        value={form.venue_layout_id}
+                        onChange={(event) => setForm({ ...form, venue_layout_id: event.target.value })}
+                        disabled={!form.venue_id}
+                      >
+                        <option value="">{form.venue_id ? 'Chọn layout' : 'Chọn venue trước'}</option>
+                        {venueLayouts.map((layout) => (
+                          <option key={layout.id} value={layout.id}>{layout.name}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm text-gray-300 mt-4 mb-3">Zone khởi tạo</p>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div><label className="block text-sm font-medium text-gray-300 mb-2">Zone code</label><Input value={form.zone_code} onChange={(event) => setForm({ ...form, zone_code: event.target.value })} /></div>
+                      <div><label className="block text-sm font-medium text-gray-300 mb-2">Zone name</label><Input value={form.zone_name} onChange={(event) => setForm({ ...form, zone_name: event.target.value })} /></div>
+                    </div>
+                    <div className="grid grid-cols-3 gap-4 mt-4">
+                      <div><label className="block text-sm font-medium text-gray-300 mb-2">Rows</label><Input type="number" min={1} value={form.row_count} onChange={(event) => setForm({ ...form, row_count: event.target.value })} /></div>
+                      <div><label className="block text-sm font-medium text-gray-300 mb-2">Seats/row</label><Input type="number" min={1} value={form.seats_per_row} onChange={(event) => setForm({ ...form, seats_per_row: event.target.value })} /></div>
+                      <div><label className="block text-sm font-medium text-gray-300 mb-2">Price</label><Input type="number" min={1} value={form.zone_price} onChange={(event) => setForm({ ...form, zone_price: event.target.value })} /></div>
+                    </div>
+                    <div className="mt-4">
+                      <label className="block text-sm font-medium text-gray-300 mb-2">Zone color</label>
+                      <Input value={form.zone_color} onChange={(event) => setForm({ ...form, zone_color: event.target.value })} />
+                    </div>
+                  </>
+                )}
               </div>
             </>
           )}
@@ -703,9 +831,6 @@ export default function AdminEvents() {
     </div>
   )
 }
-
-
-
 
 
 

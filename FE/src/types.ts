@@ -31,6 +31,8 @@ export interface EventCard {
   cover_image_url: string
   status: EventStatus
   queue_enabled: boolean
+  venue_id?: number | null
+  venue_layout_id?: number | null
 }
 
 export interface VenueSummary {
@@ -47,6 +49,10 @@ export interface VenueDetail extends VenueSummary {
   address: string | null
   width: number
   height: number
+  background_source: string | null
+  background_processed: string | null
+  background_type: 'svg' | 'raster' | 'unknown' | null
+  can_parse_background: boolean
   svg_source: string | null
   svg_processed: string | null
   created_by_user_id: number
@@ -72,6 +78,35 @@ export interface VenueSectionItem {
   color: string
   price_base: number
   sort_order: number
+  created_at: string
+  updated_at: string
+}
+
+export interface VenueSeatItem {
+  id: number
+  venue_layout_id: number | null
+  section_id: number | null
+  section_name: string | null
+  label: string
+  x: number | null
+  y: number | null
+  rotation: number
+  is_admin_locked: boolean
+}
+
+export interface VenuePolygonPoint {
+  x: number
+  y: number
+}
+
+export interface VenuePolygonItem {
+  id: number
+  venue_id: number
+  venue_layout_id: number
+  section_id: number | null
+  section_name: string | null
+  label: string | null
+  points: VenuePolygonPoint[]
   created_at: string
   updated_at: string
 }
@@ -104,6 +139,7 @@ export interface Seat {
   status: SeatStatus
   lock_expires_at: string | null
   is_locked_by_me: boolean
+  is_admin_locked: boolean
   locked_by_user?: SeatUserInfo | null
   sold_to_user?: SeatPurchaseInfo | null
 }
@@ -139,6 +175,26 @@ export interface SeatMapSection {
   price_base: number
 }
 
+export interface SeatMapBackground {
+  source: string | null
+  type: 'svg' | 'raster' | 'unknown' | null
+  width: number | null
+  height: number | null
+}
+
+export interface SeatMapPolygonPoint {
+  x: number
+  y: number
+}
+
+export interface SeatMapPolygon {
+  id: number
+  section_id: number | null
+  section_name: string | null
+  label: string | null
+  points: SeatMapPolygonPoint[]
+}
+
 export interface SeatMapSeat {
   id: number
   label: string
@@ -151,15 +207,22 @@ export interface SeatMapSeat {
   status: SeatStatus
   lock_expires_at: string | null
   is_locked_by_me: boolean
+  is_admin_locked: boolean
 }
 
 export interface SeatMapResponse {
   event_id: number
+  event_slug: string
   event_title: string
   venue_name: string
+  queue_enabled: boolean
+  background: SeatMapBackground | null
   sections: SeatMapSection[]
+  polygons: SeatMapPolygon[]
   seats: SeatMapSeat[]
   seat_count: number
+}
+
 export interface EventReview {
   id: number
   event_id: number

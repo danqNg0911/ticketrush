@@ -3,7 +3,7 @@
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import JSON, Boolean, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.models.base import Base, TimestampMixin
@@ -30,6 +30,28 @@ class Venue(TimestampMixin, Base):
     created_by = relationship("User", back_populates="venues")
     layouts = relationship("VenueLayout", back_populates="venue", cascade="all,delete")
     events = relationship("Event", back_populates="venue_obj")
+
+    @property
+    def background_source(self) -> str | None:
+        return self.svg_source
+
+    @property
+    def background_processed(self) -> str | None:
+        return self.svg_processed
+
+    @property
+    def background_type(self) -> str | None:
+        if not self.svg_source:
+            return None
+        if "<svg" in self.svg_source[:500].lower():
+            return "svg"
+        if self.svg_source.startswith("data:image/"):
+            return "raster"
+        return "unknown"
+
+    @property
+    def can_parse_background(self) -> bool:
+        return self.background_type == "svg"
 
 
 class VenueLayout(TimestampMixin, Base):
@@ -65,3 +87,20 @@ class Section(TimestampMixin, Base):
 
     layout = relationship("VenueLayout", back_populates="sections")
     seats = relationship("Seat", back_populates="section")
+
+
+class Polygon(TimestampMixin, Base):
+    """Polygon zone metadata drawn on top of a venue layout."""
+
+    __tablename__ = "polygons"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, index=True)
+    venue_id: Mapped[int] = mapped_column(ForeignKey("venues.id", ondelete="CASCADE"), nullable=False, index=True)
+    venue_layout_id: Mapped[int] = mapped_column(ForeignKey("venue_layouts.id", ondelete="CASCADE"), nullable=False, index=True)
+    section_id: Mapped[int | None] = mapped_column(ForeignKey("sections.id", ondelete="SET NULL"), nullable=True, index=True)
+    label: Mapped[str | None] = mapped_column(String(100), nullable=True)
+    points: Mapped[list[dict[str, float]]] = mapped_column(JSON, nullable=False)
+
+    venue = relationship("Venue")
+    layout = relationship("VenueLayout")
+    section = relationship("Section")
