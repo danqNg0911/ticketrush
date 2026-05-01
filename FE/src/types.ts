@@ -361,6 +361,7 @@ export interface TicketItem {
   event_slug: string
   event_title: string
   event_date: string
+  event_cover_image_url: string
   venue: string
   seat_label: string
   zone_name: string

@@ -61,7 +61,7 @@ export function AdminSidebar() {
                 'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all',
                 isActuallyActive
                   ? 'bg-brand-red/10 text-brand-red border border-brand-red/20'
-                  : 'text-gray-300 hover:bg-white/5 hover:text-white'
+                  : 'text-gray-300 hover:bg-white/5 hover:text-on-background'
               );
             }}
           >

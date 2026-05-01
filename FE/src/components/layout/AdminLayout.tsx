@@ -12,17 +12,17 @@ interface AdminLayoutProps {
 
 export function AdminLayout({ title, actions }: AdminLayoutProps) {
   return (
-    <div className="flex h-screen bg-space-900 text-white">
+    <div className="flex h-screen bg-background text-on-background">
       <AdminSidebar />
       
       <main className="flex-1 flex flex-col overflow-hidden">
         {/* Top Header */}
-        <header className="p-4 border-b border-white/10 flex items-center justify-between px-6 bg-space-800/50 backdrop-blur-sm">
+        <header className="p-4 border-b border-white/10 flex items-center justify-between px-6 bg-surface-variant/50 backdrop-blur-sm">
           <div className="flex items-center gap-4">
             {title && <h1 className="text-lg font-semibold">{title}</h1>}
             <div className="relative left-50 hidden md:block">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" />
-              <Input placeholder="Tìm kiếm..." className="pl-10 h-9 w-128 bg-space-700/50 border-white/10" />
+              <Input placeholder="Tìm kiếm..." className="pl-10 h-9 w-128 bg-surface/50 border-white/10" />
             </div>
           </div>
           
@@ -36,7 +36,7 @@ export function AdminLayout({ title, actions }: AdminLayoutProps) {
         </header>
 
         {/* Scrollable Content */}
-        <div className="relative flex-1 overflow-y-auto p-6 bg-space-900">
+        <div className="relative flex-1 overflow-y-auto p-6 bg-background">
           <div
             className="pointer-events-none absolute inset-0 opacity-25"
             style={{

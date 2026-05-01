@@ -47,7 +47,7 @@ export default function Home() {
   }
 
   return (
-    <main className="min-h-screen bg-slate-950 text-white">
+    <main className="min-h-screen bg-background text-on-background">
       <section className="relative h-[480px] md:h-[480px] overflow-hidden border-b border-white/10">
         {heroEvent ? (
           <>
@@ -142,7 +142,7 @@ export default function Home() {
       <section className="max-w-7xl mx-auto px-6 py-12 space-y-10">
         <div className="flex items-center justify-between gap-4">
           <h2 className="text-2xl font-bold">Sự kiện gần đây</h2>
-          <Link to="/search" className="text-sm text-slate-400 hover:text-white">
+          <Link to="/search" className="text-sm text-slate-400 hover:text-on-background">
             Xem tất cả
           </Link>
         </div>
