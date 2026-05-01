@@ -1,4 +1,4 @@
-import { useMemo } from 'react'
+import { useMemo, useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 
 import { Button } from '@/components/ui/Button'
@@ -20,7 +20,10 @@ function formatDate(date: string) {
 export default function Home() {
   const { events, isLoading, error } = useEvents()
 
-  const heroEvent = events[0]
+  const topEvents = useMemo(() => events.slice(0, 3), [events])
+  const [currentIndex, setCurrentIndex] = useState(0)
+
+  const heroEvent = topEvents[currentIndex]
 
   const featuredEvents = useMemo(() => events.slice(0, 6), [events])
 
@@ -28,16 +31,32 @@ export default function Home() {
     return Array.from(new Set(events.map((event) => event.category).filter(Boolean))).slice(0, 8)
   }, [events])
 
+  useEffect(() => {
+    if (topEvents.length === 0) return
+
+    const interval = setInterval(() => {
+      setCurrentIndex((prev) => (prev + 1) % topEvents.length)
+    }, 4000) // 4s đổi slide
+
+    return () => clearInterval(interval)
+  }, [topEvents])
   return (
     <main className="min-h-screen bg-slate-950 text-white">
-      <section className="relative min-h-[420px] overflow-hidden border-b border-white/10">
+      <section className="relative h-[480px] md:h-[480px] overflow-hidden border-b border-white/10">
         {heroEvent ? (
           <>
-            <img
-              src={heroEvent.cover_image_url || FALLBACK_IMAGE}
-              alt={heroEvent.title}
-              className="absolute inset-0 h-full w-full object-cover"
-            />
+            <div className="absolute inset-0">
+              {topEvents.map((event, index) => (
+                <img
+                  key={event.id}
+                  src={event.cover_image_url || FALLBACK_IMAGE}
+                  alt={event.title}
+                  className={`absolute inset-0 h-full w-full object-cover transition-opacity duration-1000 ${
+                    index === currentIndex ? 'opacity-100' : 'opacity-0'
+                  }`}
+                />
+              ))}
+            </div>
             <div className="absolute inset-0 bg-gradient-to-r from-slate-950 via-slate-950/80 to-transparent" />
           </>
         ) : (
@@ -50,10 +69,10 @@ export default function Home() {
           ) : error ? (
             <p className="text-amber-300">{error}</p>
           ) : heroEvent ? (
-            <div className="max-w-3xl space-y-6">
+            <div className="max-w-5xl space-y-6">
               <div className="inline-flex items-center gap-2 rounded-full border border-white/20 bg-black/30 px-4 py-2 text-xs uppercase tracking-[0.2em]">
                 <Sparkles className="h-4 w-4" />
-                Featured Event
+                Sự kiện nổi bật
               </div>
               <h1 className="text-4xl md:text-6xl font-black leading-tight">{heroEvent.title}</h1>
               <p className="text-slate-300 max-w-2xl line-clamp-3">{heroEvent.description}</p>
@@ -69,11 +88,11 @@ export default function Home() {
               </div>
               <div className="flex gap-3">
                 <Link to={`/event/${heroEvent.slug || heroEvent.id}`}>
-                  <Button size="lg">View Event</Button>
+                  <Button size="md" variant={"primary"}>Chi tiết</Button>
                 </Link>
                 <Link to="/search">
-                  <Button size="lg" variant="outline">
-                    Explore All
+                  <Button size="md" variant="outline">
+                    Sự kiện khác
                   </Button>
                 </Link>
               </div>
@@ -88,20 +107,44 @@ export default function Home() {
             </div>
           )}
         </div>
+        <button
+          onClick={() => setCurrentIndex((prev) => (prev - 1 + topEvents.length) % topEvents.length)}
+          className="absolute left-4 top-1/2 -translate-y-1/2 z-10"
+        >
+          ◀
+        </button>
+
+        <button
+          onClick={() => setCurrentIndex((prev) => (prev + 1) % topEvents.length)}
+          className="absolute right-4 top-1/2 -translate-y-1/2 z-10"
+        >
+          ▶
+        </button>
+      <div className="absolute bottom-6 left-1/2 -translate-x-1/2 flex gap-2">
+        {topEvents.map((_, index) => (
+          <div
+            key={index}
+            onClick={() => setCurrentIndex(index)}
+            className={`h-2 w-2 rounded-full cursor-pointer ${
+              index === currentIndex ? 'bg-white' : 'bg-white/40'
+            }`}
+          />
+        ))}
+        </div>
       </section>
 
       <section className="max-w-7xl mx-auto px-6 py-12 space-y-10">
         <div className="flex items-center justify-between gap-4">
-          <h2 className="text-2xl font-bold">Featured Events</h2>
+          <h2 className="text-2xl font-bold">Sự kiện gần đây</h2>
           <Link to="/search" className="text-sm text-slate-400 hover:text-white">
-            View all
+            Xem tất cả
           </Link>
         </div>
 
         {isLoading ? (
-          <p className="text-slate-400">Loading featured events...</p>
+          <p className="text-slate-400">Đang tải sự kiện...</p>
         ) : featuredEvents.length === 0 ? (
-          <p className="text-slate-400">No events available.</p>
+          <p className="text-slate-400">Không có sự kiện khả dụng.</p>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6">
             {featuredEvents.map((event) => (
@@ -111,7 +154,7 @@ export default function Home() {
                 title={event.title}
                 date={formatDate(event.start_at)}
                 venue={event.venue}
-                price="See Seats"
+                price={event.category}
                 badge={event.category}
                 href={`/event/${event.slug || event.id}`}
               />
@@ -120,7 +163,7 @@ export default function Home() {
         )}
 
         <div>
-          <h3 className="text-xl font-bold mb-4">Browse Categories</h3>
+          <h3 className="text-xl font-bold mb-4">Thể loại</h3>
           <div className="flex flex-wrap gap-3">
             {categoryList.map((category) => (
               <Link
@@ -131,7 +174,7 @@ export default function Home() {
                 {category}
               </Link>
             ))}
-            {categoryList.length === 0 && <p className="text-sm text-slate-400">No categories yet.</p>}
+            {categoryList.length === 0 && <p className="text-sm text-slate-400">Không tìm thấy thể loại.</p>}
           </div>
         </div>
       </section>

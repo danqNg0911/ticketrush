@@ -34,7 +34,7 @@ export default function EventDetail() {
   const { isAuthenticated } = useAuth()
   const { event, isLoading, error } = useEventDetail(eventKey)
   const { status: gameStatus, playsLeft, error: gameError, refreshStatus } = useGame()
-  const [activeTab, setActiveTab] = useState<'info' | 'reviews'>('info')
+  const [activeTab, setActiveTab] = useState<'info' | 'reviews' | 'game'>('info')
   const [reviews, setReviews] = useState<EventReview[]>([])
   const [reviewOffset, setReviewOffset] = useState(0)
   const [reviewLoading, setReviewLoading] = useState(false)
@@ -47,6 +47,10 @@ export default function EventDetail() {
   const [gameMessage, setGameMessage] = useState<string>('')
   const [gameLoading, setGameLoading] = useState(false)
   const [showConfetti, setShowConfetti] = useState(false)
+  const [gameModal, setGameModal] = useState<{
+    open: boolean
+    type: 'wheel' | 'scratch' | null
+  }>({ open: false, type: null })
 
   async function fetchReviews(nextOffset = 0, append = false) {
     if (!eventKey) return
@@ -77,6 +81,14 @@ export default function EventDetail() {
     }, 20000)
     return () => window.clearInterval(timer)
   }, [event?.id, refreshStatus])
+
+  useEffect(() => {
+    if (gameModal.open) {
+      document.body.style.overflow = 'hidden'
+    } else {
+      document.body.style.overflow = ''
+    }
+  }, [gameModal.open])
 
   const averageRating = useMemo(() => {
     if (reviews.length === 0) return 0
@@ -126,10 +138,10 @@ export default function EventDetail() {
   }
 
   const playGame = async (gameType: 'wheel' | 'scratch'): Promise<GamePlayResponse | null> => {
-    if (!event) return
+    if (!event) return null
     if (!isAuthenticated) {
       navigate('/login')
-      return
+      return null
     }
     setGameLoading(true)
     setGameMessage('')
@@ -228,14 +240,21 @@ export default function EventDetail() {
               className={`px-4 py-2 rounded-lg text-sm ${activeTab === 'info' ? 'bg-primary text-white' : 'text-slate-300 hover:bg-white/10'}`}
               onClick={() => setActiveTab('info')}
             >
-              Info
+              Đặt chỗ
             </button>
             <button
               type="button"
               className={`px-4 py-2 rounded-lg text-sm ${activeTab === 'reviews' ? 'bg-primary text-white' : 'text-slate-300 hover:bg-white/10'}`}
               onClick={() => setActiveTab('reviews')}
             >
-              Reviews
+              Đánh giá
+            </button>
+            <button
+              type="button"
+              className={`px-4 py-2 rounded-lg text-sm ${activeTab === 'game' ? 'bg-primary text-white' : 'text-slate-300 hover:bg-white/10'}`}
+              onClick={() => setActiveTab('game')}
+            >
+              Giảm giá
             </button>
           </div>
 
@@ -266,7 +285,7 @@ export default function EventDetail() {
                 </div>
               </div>
             </>
-          ) : (
+          ) : activeTab === 'reviews' ? (
             <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -330,36 +349,36 @@ export default function EventDetail() {
                 </Button>
               </div>
             </div>
+          ) : (
+            <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6 space-y-3 relative overflow-hidden">
+              <h3 className="text-lg font-bold">Phiếu giảm giá may mắn</h3>
+              <p className="text-xs text-slate-400">
+                Reset: {gameStatus ? new Date(gameStatus.next_reset_time).toLocaleString('vi-VN') : '--'}
+              </p>
+              {gameStatus && (
+                <div className="text-xs text-slate-300 space-y-1">
+                  <p className="text-m text-white font-bold">Tỷ lệ phần thưởng</p>
+                  {gameStatus.remaining_prizes.map((item) => (
+                    <p key={item.tier_name}>
+                      {item.tier_name}: con {item.remaining_qty}
+                    </p>
+                  ))}
+                </div>
+              )}
+              <LuckyWheel status={gameStatus} playsLeft={playsLeft.wheel} onPlay={() => setGameModal({ open: true, type: 'wheel' })} />
+              <ScratchCard playsLeft={playsLeft.scratch} onPlay={() => setGameModal({ open: true, type: 'scratch' })} />
+              {gameError && <p className="text-xs text-amber-300">{gameError}</p>}
+              {gameMessage && <p className="text-xs text-emerald-300">{gameMessage}</p>}
+              {showConfetti && (
+                <div className="pointer-events-none absolute inset-0 flex items-start justify-center text-2xl animate-pulse">
+                  <span>🎉🎉🎉</span>
+                </div>
+              )}
+            </div>
           )}
         </section>
 
         <aside className="space-y-4">
-          <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6 space-y-3 relative overflow-hidden">
-            <h3 className="text-lg font-bold">Lucky Game</h3>
-            <p className="text-xs text-slate-400">Hom nay ban con {playsLeft.wheel} luot quay va {playsLeft.scratch} luot cao.</p>
-            <p className="text-xs text-slate-400">
-              Reset: {gameStatus ? new Date(gameStatus.next_reset_time).toLocaleString('vi-VN') : '--'}
-            </p>
-            {gameStatus && (
-              <div className="text-xs text-slate-300 space-y-1">
-                {gameStatus.remaining_prizes.slice(0, 3).map((item) => (
-                  <p key={item.tier_name}>
-                    {item.tier_name}: con {item.remaining_qty}
-                  </p>
-                ))}
-              </div>
-            )}
-            <LuckyWheel status={gameStatus} playsLeft={playsLeft.wheel} onPlay={() => playGame('wheel')} />
-            <ScratchCard playsLeft={playsLeft.scratch} onPlay={() => playGame('scratch')} />
-            {gameError && <p className="text-xs text-amber-300">{gameError}</p>}
-            {gameMessage && <p className="text-xs text-emerald-300">{gameMessage}</p>}
-            {showConfetti && (
-              <div className="pointer-events-none absolute inset-0 flex items-start justify-center text-2xl animate-pulse">
-                <span>🎉🎉🎉</span>
-              </div>
-            )}
-          </div>
-
           <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6 space-y-4">
             <h3 className="text-lg font-bold">Event Info</h3>
             <div className="flex items-start gap-3 text-slate-300">
@@ -399,6 +418,51 @@ export default function EventDetail() {
           </Link>
         </aside>
       </main>
+
+      {gameModal.open && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
+          
+          {/* Overlay nền */}
+          <div
+            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
+            onClick={() => setGameModal({ open: false, type: null })}
+          />
+
+          {/* Nội dung popup */}
+          <div className="relative z-10 w-[90%] max-w-md rounded-xl bg-slate-900 border border-white/10 p-6 shadow-2xl">
+            
+            <button
+              className="absolute top-3 right-3 text-slate-400 hover:text-white"
+              onClick={() => setGameModal({ open: false, type: null })}
+            >
+              ✕
+            </button>
+
+            <h3 className="text-lg font-bold mb-4 text-center">
+              {gameModal.type === 'wheel' ? 'Vòng quay may mắn' : 'Cào vé'}
+            </h3>
+
+            {gameModal.type === 'wheel' ? (
+              <LuckyWheel
+                status={gameStatus}
+                playsLeft={playsLeft.wheel}
+                onPlay={async () => await playGame('wheel')}
+              />
+            ) : (
+              <ScratchCard
+                playsLeft={playsLeft.scratch}
+                onPlay={() => {return playGame('scratch')}}
+              />
+            )}
+
+            {gameMessage && (
+              <p className="text-sm text-emerald-300 mt-4 text-center">
+                {gameMessage}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
 
       <Footer />
     </div>

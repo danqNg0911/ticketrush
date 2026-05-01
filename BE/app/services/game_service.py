@@ -22,6 +22,11 @@ from app.schemas.game import GamePlayRequest, GamePlayResponse, GameStatusRespon
 
 settings = get_settings()
 redis_client = get_redis_client()
+RAPID_FIRE_MS = 120
+RAPID_FIRE_BURST_LIMIT = 3
+REQ_PER_MINUTE_FLAG_LIMIT = 30
+REQ_PER_MINUTE_HARD_LIMIT = 60
+IP_SHARED_ACCOUNTS_FLAG_LIMIT = 12
 
 
 def _next_midnight_utc(now: datetime) -> datetime:
@@ -95,14 +100,18 @@ async def play_game(
     result_tier = "none"
     try:
         # Anti-fraud signals from Redis.
-        signal_key = f"game:signal:{user_id}"
-        ip_key = f"game:ip:{payload.event_id}:{user_id}"
+        signal_key = f"game:signal:{payload.event_id}:{user_id}:{payload.game_type}"
+        ip_key = f"game:ip:{payload.event_id}:{ip}"
         last_ts_raw = await redis_client.get(signal_key)
         now_ms = int(datetime.now(UTC).timestamp() * 1000)
         if last_ts_raw:
             try:
-                if now_ms - int(last_ts_raw) < 200:
-                    risk_flags.append("timing_lt_200ms")
+                if now_ms - int(last_ts_raw) < RAPID_FIRE_MS:
+                    burst_hits = await redis_client.incr(f"game:rapid:{payload.event_id}:{user_id}:{payload.game_type}")
+                    if burst_hits == 1:
+                        await redis_client.expire(f"game:rapid:{payload.event_id}:{user_id}:{payload.game_type}", 10)
+                    if burst_hits >= RAPID_FIRE_BURST_LIMIT:
+                        risk_flags.append("rapid_fire_burst")
             except ValueError:
                 pass
         await redis_client.set(signal_key, str(now_ms), ex=120)
@@ -110,16 +119,19 @@ async def play_game(
         per_minute = await redis_client.incr(f"game:req:min:{user_id}")
         if per_minute == 1:
             await redis_client.expire(f"game:req:min:{user_id}", 60)
-        if per_minute > 15:
-            risk_flags.append("req_gt_15_per_min")
+        if per_minute > REQ_PER_MINUTE_FLAG_LIMIT:
+            risk_flags.append("req_gt_30_per_min")
+        if per_minute > REQ_PER_MINUTE_HARD_LIMIT:
+            raise HTTPException(status_code=status.HTTP_429_TOO_MANY_REQUESTS, detail="Too many game requests")
 
         await redis_client.sadd(ip_key, str(user_id))
         await redis_client.expire(ip_key, 3600)
         account_count = await redis_client.scard(ip_key)
-        if account_count > 5:
+        if account_count > IP_SHARED_ACCOUNTS_FLAG_LIMIT:
             risk_flags.append("multi_accounts_same_ip")
 
-        if risk_flags and payload.captcha_token != "passed":
+        strict_flags = {"rapid_fire_burst", "req_gt_30_per_min"}
+        if strict_flags.intersection(risk_flags) and payload.captcha_token != "passed":
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="CAPTCHA required")
 
         daily = await session.scalar(

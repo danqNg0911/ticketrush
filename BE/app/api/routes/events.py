@@ -41,8 +41,8 @@ async def list_events(
     )
     cached = await public_api_cache.get(EVENT_LIST_CACHE_NAMESPACE, cache_key)
     if cached is not None:
-        return cached
-
+        if isinstance(cached, list) and (not cached or isinstance(cached[0], dict)):
+            return cached
     events = await list_live_events(session, search=search, category=category, start_from=start_from, end_to=end_to, limit=limit, offset=offset)
     response = [EventCardResponse.model_validate(event) for event in events]
     return await public_api_cache.set(EVENT_LIST_CACHE_NAMESPACE, cache_key, response, ttl_seconds=300)

@@ -48,7 +48,7 @@ function RoleSelect({ roleFilter, setRoleFilter }: RoleSelectProps) {
           {roles.find((r) => r.value === roleFilter)?.label}
         </Listbox.Button>
         <Listbox.Options
-          className="absolute z-50 mt-1 w-48 bg-space-900 text-white border border-white/20 rounded-md shadow-lg"
+          className="absolute z-50 mt-1 w-48 bg-slate-900 text-white border border-white/20 rounded-md shadow-lg"
         >
           {roles.map((role) => (
             <Listbox.Option

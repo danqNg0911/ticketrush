@@ -19,11 +19,33 @@ export function ScratchCard({ onPlay, playsLeft }: ScratchCardProps) {
     if (!canvas) return
     const ctx = canvas.getContext('2d')
     if (!ctx) return
-    ctx.fillStyle = '#334155'
-    ctx.fillRect(0, 0, canvas.width, canvas.height)
+    const radius = 16
+    ctx.clearRect(0, 0, canvas.width, canvas.height)
+
+    // bo góc
+    ctx.beginPath()
+    ctx.moveTo(radius, 0)
+    ctx.lineTo(canvas.width - radius, 0)
+    ctx.quadraticCurveTo(canvas.width, 0, canvas.width, radius)
+    ctx.lineTo(canvas.width, canvas.height - radius)
+    ctx.quadraticCurveTo(canvas.width, canvas.height, canvas.width - radius, canvas.height)
+    ctx.lineTo(radius, canvas.height)
+    ctx.quadraticCurveTo(0, canvas.height, 0, canvas.height - radius)
+    ctx.lineTo(0, radius)
+    ctx.quadraticCurveTo(0, 0, radius, 0)
+    ctx.closePath()
+
+    // gradient
+    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height)
+    gradient.addColorStop(0, '#64748b')
+    gradient.addColorStop(1, '#334155')
+
+    ctx.fillStyle = gradient
+    ctx.fill()
     ctx.fillStyle = '#e2e8f0'
     ctx.font = 'bold 18px sans-serif'
-    ctx.fillText('Cào để xem kết quả', 45, 75)
+    ctx.textAlign = 'center'
+    ctx.fillText('🎟 Cào để nhận thưởng', canvas.width / 2, canvas.height / 2)
   }, [result])
 
   useEffect(() => {
@@ -34,9 +56,15 @@ export function ScratchCard({ onPlay, playsLeft }: ScratchCardProps) {
 
     let pressed = false
     const scratch = (x: number, y: number) => {
+      const radius = 18
+      const gradient = ctx.createRadialGradient(x, y, 0, x, y, radius)
+      gradient.addColorStop(0, 'rgba(0,0,0,1)')
+      gradient.addColorStop(1, 'rgba(0,0,0,0)')
+
       ctx.globalCompositeOperation = 'destination-out'
+      ctx.fillStyle = gradient
       ctx.beginPath()
-      ctx.arc(x, y, 14, 0, Math.PI * 2)
+      ctx.arc(x, y, radius, 0, Math.PI * 2)
       ctx.fill()
     }
 

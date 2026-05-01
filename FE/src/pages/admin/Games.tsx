@@ -6,7 +6,28 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { Input } from '@/components/ui/Input'
 import { adminApi, extractApiErrorMessage } from '@/lib/api'
 import type { AdminGameConfig, AdminGameMonitor, AdminPrizePool } from '@/types'
+import { FerrisWheel, Ticket } from "lucide-react"
 
+function ToggleSwitch({ checked, onChange }: { checked: boolean; onChange: () => void }) {
+  return (
+    <label className="inline-flex items-center cursor-pointer">
+      <input
+        type="checkbox"
+        checked={checked}
+        onChange={onChange}
+        className="sr-only peer"
+      />
+      <div
+        className={`w-11 h-6 rounded-full peer-checked:bg-red-400 bg-gray-400 relative transition-colors`}
+      >
+        <div
+          className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform
+            ${checked ? "translate-x-5" : ""}`}
+        />
+      </div>
+    </label>
+  )
+}
 export default function AdminGames() {
   const [eventKey, setEventKey] = useState('')
   const [configs, setConfigs] = useState<AdminGameConfig[]>([])
@@ -28,6 +49,8 @@ export default function AdminGames() {
     initial_qty: 50,
     weight: 10,
   })
+  const gameTypes: Array<'wheel' | 'scratch'> = ['wheel', 'scratch']
+  const normalizedEventKey = eventKey.trim()
 
   async function loadMonitor() {
     try {
@@ -39,11 +62,11 @@ export default function AdminGames() {
   }
 
   async function loadEventGame() {
-    if (!eventKey) return
+    if (!normalizedEventKey) return
     setLoading(true)
     setError(null)
     try {
-      const [cfg, pp] = await Promise.all([adminApi.gameConfigs(eventKey), adminApi.gamePools(eventKey)])
+      const [cfg, pp] = await Promise.all([adminApi.gameConfigs(normalizedEventKey), adminApi.gamePools(normalizedEventKey)])
       setConfigs(cfg)
       setPools(pp)
     } catch (e) {
@@ -85,7 +108,7 @@ export default function AdminGames() {
       setConfirmAction(null)
       setConfirmCode('')
     } catch (e) {
-      setError(extractApiErrorMessage(e, 'Thao tac that bai'))
+      setError(extractApiErrorMessage(e, 'Thao tác thất bại'))
     } finally {
       setActionLoading(false)
     }
@@ -97,9 +120,9 @@ export default function AdminGames() {
         <h2 className="text-2xl font-bold text-white">Game Admin</h2>
         <div className="flex gap-2">
           <Button variant="outline" onClick={() => void loadMonitor()}>
-            Refresh Monitor
+            Làm mới
           </Button>
-          <Button onClick={() => window.open('/api/admin/games/export.csv', '_blank')}>Export CSV</Button>
+          <Button onClick={() => window.open('/api/admin/games/export.csv', '_blank')}>Xuất CSV</Button>
         </div>
       </div>
 
@@ -107,64 +130,81 @@ export default function AdminGames() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Monitoring</CardTitle>
+          <CardTitle>Giám sát</CardTitle>
         </CardHeader>
-        <CardContent className="grid grid-cols-1 md:grid-cols-3 gap-4">
-          <div className="rounded-lg bg-slate-800/70 p-3">Plays today: {monitor?.total_plays_today ?? 0}</div>
-          <div className="rounded-lg bg-slate-800/70 p-3">Vouchers left: {monitor?.total_vouchers_remaining ?? 0}</div>
-          <div className="rounded-lg bg-slate-800/70 p-3">Fraud flags: {(monitor?.top_users ?? []).filter((u) => u.flag_fraud).length}</div>
+        <CardContent className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="rounded-lg bg-slate-800/70 p-3">Lượt đã chơi hôm nay: {monitor?.total_plays_today ?? 0}</div>
+          <div className="rounded-lg bg-slate-800/70 p-3">Số voucher còn lại: {monitor?.total_vouchers_remaining ?? 0}</div>
         </CardContent>
       </Card>
 
       <Card>
         <CardHeader>
-          <CardTitle>Event Game Config</CardTitle>
+          <CardTitle>Cài đặt game</CardTitle>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="flex gap-3">
-            <Input value={eventKey} onChange={(e) => setEventKey(e.target.value)} placeholder="event slug/id" />
-            <Button onClick={() => void loadEventGame()} isLoading={loading}>
+          <div className="flex gap-3 items-end">
+            <div className="flex-1 space-y-1">
+              <p className="text-xs text-slate-300">Nhập sự kiện</p>
+              <Input value={eventKey} onChange={(e) => setEventKey(e.target.value)} placeholder="Event ID" />
+            </div>
+            <Button className="rounded-xl bg-gradient-to-r from-primary to-primary-container" variant="primary" onClick={() => void loadEventGame()} isLoading={loading}>
               Load
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => openTwoStepConfirm('Force refill event pools', async () => { await adminApi.gameRefill(eventKey) })}
-            >
-              Force Refill
-            </Button>
-            <Button
-              variant="outline"
-              onClick={() => openTwoStepConfirm('Manual reset all event pools', async () => { await adminApi.gameReset() })}
-            >
-              Manual Reset
-            </Button>
           </div>
 
-          <div className="space-y-2">
-            {configs.map((cfg) => (
-              <div key={cfg.id} className="flex items-center justify-between rounded-lg bg-slate-800/60 p-3">
-                <span>
-                  {cfg.game_type} | active: {String(cfg.is_active)} | max/day: {cfg.max_plays_per_user_per_day}
-                </span>
-                <Button
-                  size="sm"
-                  onClick={() =>
-                    void adminApi.upsertGameConfig(eventKey, {
-                      game_type: cfg.game_type,
-                      is_active: !cfg.is_active,
-                      daily_reset_cron: cfg.daily_reset_cron,
-                      max_plays_per_user_per_day: cfg.max_plays_per_user_per_day,
-                    }).then(loadEventGame)
-                  }
+          {!normalizedEventKey && (
+            <p className="text-xs text-amber-300">Nhập Event ID trước khi thao tác</p>
+          )}
+
+          <div className="flex space-x-4">
+            {gameTypes.map((gameType) => {
+              const cfg = configs.find((item) => item.game_type === gameType)
+              const isActive = cfg?.is_active ?? false
+              const cron = cfg?.daily_reset_cron ?? "0 0 * * *"
+              const maxPerDay = cfg?.max_plays_per_user_per_day ?? 3
+
+              const icon =
+                gameType === "wheel" ? (
+                  <FerrisWheel className="mr-2 h-5 w-5" />
+                ) : (
+                  <Ticket className="mr-2 h-5 w-5" />
+                )
+
+              const gameName =
+                gameType === "wheel" ? "Vòng quay may mắn" : "Cào vé trúng thưởng"
+
+              return (
+                <div
+                  key={gameType}
+                  className="flex flex-col rounded-lg bg-slate-800/60 p-3 w-1/2"
                 >
-                  Toggle
-                </Button>
-              </div>
-            ))}
+                  <div className="flex items-center mb-2">
+                    {icon}
+                    <span className="font-semibold">{gameName}</span>
+                  </div>
+                  <div className="text-sm mb-2">Số lượt/ngày: {maxPerDay}</div>
+                  <ToggleSwitch
+                    checked={isActive}
+                    onChange={() =>
+                      void adminApi
+                        .upsertGameConfig(normalizedEventKey, {
+                          game_type: gameType,
+                          is_active: !isActive,
+                          daily_reset_cron: cron,
+                          max_plays_per_user_per_day: maxPerDay,
+                        })
+                        .then(loadEventGame)
+                    }
+                  />
+                </div>
+              )
+            })}
           </div>
+
 
           <div className="border-t border-white/10 pt-4 space-y-3">
-            <p className="text-sm text-gray-300">Prize Pools</p>
+            <p className="text-sm text-gray-300">Pools phần thưởng</p>
             {pools.map((pool) => (
               <div key={pool.id} className="grid grid-cols-6 gap-2 items-center rounded bg-slate-800/50 p-2">
                 <span>{pool.tier_name}</span>
@@ -180,32 +220,90 @@ export default function AdminGames() {
                     })
                   }
                 >
-                  Refill Tier
+                  Đặt mặc định
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => void adminApi.deleteGamePool(pool.id).then(loadEventGame)}>
-                  Delete
+                  Xóa
                 </Button>
               </div>
             ))}
-            <div className="grid grid-cols-5 gap-2">
-              <Input value={newPool.tier_name} onChange={(e) => setNewPool((p) => ({ ...p, tier_name: e.target.value }))} placeholder="tier" />
-              <Input type="number" value={newPool.discount_percent} onChange={(e) => setNewPool((p) => ({ ...p, discount_percent: Number(e.target.value) }))} />
-              <Input type="number" value={newPool.initial_qty} onChange={(e) => setNewPool((p) => ({ ...p, initial_qty: Number(e.target.value) }))} />
-              <Input type="number" value={newPool.weight} onChange={(e) => setNewPool((p) => ({ ...p, weight: Number(e.target.value) }))} />
-              <Button onClick={() => void adminApi.createGamePool(eventKey, newPool).then(loadEventGame)}>Add Pool</Button>
+            <div className="grid grid-cols-1 md:grid-cols-5 gap-2 items-end">
+              <div className="space-y-1">
+                <p className="text-xs text-slate-300">Giải</p>
+                <Input value={newPool.tier_name} onChange={(e) => setNewPool((p) => ({ ...p, tier_name: e.target.value }))} placeholder="VD: Gold" />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-slate-300">Giảm giá (%)</p>
+                <Input type="number" value={newPool.discount_percent} onChange={(e) => setNewPool((p) => ({ ...p, discount_percent: Number(e.target.value) }))} />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-slate-300">Số lượng giải</p>
+                <Input type="number" value={newPool.initial_qty} onChange={(e) => setNewPool((p) => ({ ...p, initial_qty: Number(e.target.value) }))} />
+              </div>
+              <div className="space-y-1">
+                <p className="text-xs text-slate-300">Trọng số</p>
+                <Input type="number" value={newPool.weight} onChange={(e) => setNewPool((p) => ({ ...p, weight: Number(e.target.value) }))} />
+              </div>
+              <Button disabled={!normalizedEventKey} onClick={() => void adminApi.createGamePool(normalizedEventKey, newPool).then(loadEventGame)}>Thêm Pool</Button>
             </div>
 
             {pools.length > 0 && (
               <div className="border-t border-white/10 pt-4 space-y-4">
-                <p className="text-sm text-gray-300">Odds Visualization</p>
+                <p className="text-sm text-gray-300">Trực quan thông số</p>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="rounded-lg bg-slate-800/50 p-4">
-                    <p className="text-xs text-slate-300 mb-3">Weight Distribution (Pie)</p>
-                    <div className="mx-auto h-40 w-40 rounded-full border border-white/20" style={{ background: `conic-gradient(${pieStops.join(',')})` }} />
-                    <p className="text-xs text-slate-400 mt-3 text-center">Total weight: {totalWeight}</p>
+                    <p className="text-xs font-bold text-slate-300 mb-3">Phân phối trọng số </p>
+                    <svg viewBox="0 0 32 32" className="mx-auto w-40 h-40">
+                      <defs>
+                        <clipPath id="circleClip">
+                          <circle cx="16" cy="16" r="16" />
+                        </clipPath>
+                      </defs>
+
+                      <g clipPath="url(#circleClip)">
+                        {(() => {
+                          let cumulative = 0
+                          return pools.map((pool, idx) => {
+                            const value = totalWeight > 0 ? pool.weight / totalWeight : 0
+                            const dash = value * 100
+                            const gap = 100 - dash
+                            const color = colors[idx % colors.length]
+
+                            const circle = (
+                              <circle
+                                key={pool.id}
+                                r="16"
+                                cx="16"
+                                cy="16"
+                                fill="transparent"
+                                stroke={color}
+                                strokeWidth="32"
+                                strokeDasharray={`${dash} ${gap}`}
+                                strokeDashoffset={-cumulative}
+                              />
+                            )
+
+                            cumulative += dash
+                            return circle
+                          })
+                        })()}
+                      </g>
+                    </svg>
+                    <p className="text-xs text-slate-400 mt-3 text-center">Tổng trọng số: {totalWeight}</p>
+                    <div className="mt-3 space-y-1">
+                      {pools.map((pool, idx) => (
+                        <div key={`legend-${pool.id}`} className="flex items-center text-xs text-slate-300">
+                          <span
+                            className="inline-block w-3 h-3 rounded-sm mr-2"
+                            style={{ backgroundColor: colors[idx % colors.length] }}
+                          />
+                          <span>{pool.tier_name} ({pool.weight})</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                   <div className="rounded-lg bg-slate-800/50 p-4 space-y-2">
-                    <p className="text-xs text-slate-300 mb-1">Remaining by Tier (Bar)</p>
+                    <p className="text-xs font-bold text-slate-300 mb-1">Số giải còn lại</p>
                     {pools.map((pool) => {
                       const width = totalRemaining > 0 ? (pool.remaining_qty / totalRemaining) * 100 : 0
                       return (
@@ -234,7 +332,10 @@ export default function AdminGames() {
           <p className="text-xs text-amber-300">
             Step 1: Nhap ma xac nhan de tiep tuc. Ma: <span className="font-mono font-semibold">{confirmAction?.expectedCode}</span>
           </p>
-          <Input value={confirmCode} onChange={(e) => setConfirmCode(e.target.value)} placeholder="Nhap ma xac nhan" />
+          <div className="space-y-1">
+            <p className="text-xs text-slate-300">Ma xac nhan</p>
+            <Input value={confirmCode} onChange={(e) => setConfirmCode(e.target.value)} placeholder="Nhap ma xac nhan" />
+          </div>
           <div className="flex justify-end gap-2">
             <Button variant="ghost" onClick={() => setConfirmAction(null)} disabled={actionLoading}>
               Huy

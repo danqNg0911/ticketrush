@@ -346,6 +346,8 @@ export const adminApi = {
   },
   async deleteSection(sectionId: number) {
     const response = await api.delete(`/admin/sections/${sectionId}`)
+    return response.data
+  },
   async gameConfigs(eventKey: string | number) {
     return withRetry(() => api.get<AdminGameConfig[]>(`/admin/games/${eventKey}/configs`))
   },

@@ -7,6 +7,7 @@ from time import monotonic
 from typing import Any
 
 from app.core.redis_client import get_redis_client
+from pydantic import BaseModel
 
 @dataclass(slots=True)
 class CacheEntry:
@@ -52,7 +53,7 @@ class TTLCacheStore:
 
         redis_key = f"cache:{namespace}:{key!r}"
         try:
-            await self._redis.set(redis_key, json.dumps(value, default=str), ex=ttl_seconds)
+            await self._redis.set(redis_key, json.dumps(self._jsonable(value), default=str), ex=ttl_seconds)
         except Exception:
             pass
 
@@ -61,6 +62,19 @@ class TTLCacheStore:
             composite_key = (namespace, version, key)
             self._entries[composite_key] = CacheEntry(expires_at=monotonic() + ttl_seconds, value=value)
             return value
+
+    def _jsonable(self, value: Any) -> Any:
+        """Convert pydantic/object values to JSON-safe primitives."""
+
+        if isinstance(value, BaseModel):
+            return value.model_dump(mode="json")
+        if isinstance(value, dict):
+            return {k: self._jsonable(v) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self._jsonable(item) for item in value]
+        if isinstance(value, tuple):
+            return [self._jsonable(item) for item in value]
+        return value
 
     async def invalidate_namespace(self, namespace: str) -> None:
         """Invalidate all current entries of one namespace."""
