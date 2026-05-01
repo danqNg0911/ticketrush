@@ -5,7 +5,7 @@ import { Modal } from '@/components/ui/Modal'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { Badge } from '@/components/ui/Badge'
-import { Edit, Trash2, Plus, Palette, X } from 'lucide-react'
+import { Edit, Trash2, Plus } from 'lucide-react'
 
 export interface Zone {
   code: string

@@ -41,6 +41,7 @@ from app.schemas.event import (
     SeatBulkCreateRequest,
     SeatCreateResponse,
     SeatBulkCreateResponse,
+    SeatUpdateRequest,
 )
 from app.schemas.game_admin import (
     GameConfigResponse,
@@ -72,6 +73,22 @@ from app.services.game_service import (
 import math
 
 router = APIRouter(prefix="/admin", tags=["admin"])
+
+
+def _apply_admin_lock_state(seat: Seat, is_admin_locked: bool) -> None:
+    if seat.status == SeatStatus.SOLD and is_admin_locked != seat.is_admin_locked:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Cannot change admin lock for sold seat")
+
+    seat.is_admin_locked = is_admin_locked
+    if is_admin_locked:
+        seat.status = SeatStatus.LOCKED
+        seat.locked_by_user_id = None
+        seat.lock_expires_at = None
+        return
+
+    if seat.status == SeatStatus.LOCKED and seat.locked_by_user_id is None:
+        seat.status = SeatStatus.AVAILABLE
+        seat.lock_expires_at = None
 
 
 async def _build_event_detail_response(session: AsyncSession, event: Event) -> EventDetailResponse:
@@ -148,11 +165,12 @@ async def create_event_seat_single(
         seat_number=0,
         seat_label=payload.seat_label,
         price=price,
-        status=SeatStatus.AVAILABLE,
+        status=SeatStatus.LOCKED if payload.is_admin_locked else SeatStatus.AVAILABLE,
         x_coord=payload.x,
         y_coord=payload.y,
         rotation=payload.rotation,
         section_id=payload.section_id,
+        is_admin_locked=payload.is_admin_locked,
     )
     session.add(seat)
     try:
@@ -222,6 +240,7 @@ async def create_event_seat_bulk(
                     y_coord=round(y, 2),
                     rotation=0.0,
                     section_id=payload.section_id,
+                    is_admin_locked=False,
                 )
                 seats_to_add.append(seat)
 
@@ -260,6 +279,7 @@ async def create_event_seat_bulk(
                     y_coord=round(y, 2),
                     rotation=angle,
                     section_id=payload.section_id,
+                    is_admin_locked=False,
                 )
                 seats_to_add.append(seat)
 
@@ -279,6 +299,93 @@ async def create_event_seat_bulk(
             created.append(SeatCreateResponse(id=s.id, seat_label=s.seat_label, x=float(s.x_coord) if s.x_coord is not None else None, y=float(s.y_coord) if s.y_coord is not None else None))
 
     return SeatBulkCreateResponse(created_count=len(created), seats=created)
+
+
+@router.patch("/events/{event_key}/seats/{seat_id}", response_model=SeatCreateResponse)
+async def update_event_seat(
+    event_key: str,
+    seat_id: int,
+    payload: SeatUpdateRequest,
+    session: AsyncSession = Depends(get_db_session),
+    _: User = Depends(get_current_active_admin),
+) -> SeatCreateResponse:
+    """Update one seat for an existing event."""
+
+    event = await get_event_by_slug_or_id(session, event_key)
+    seat = await session.scalar(select(Seat).where(Seat.id == seat_id, Seat.event_id == event.id))
+    if not seat:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Seat not found for this event")
+
+    if payload.zone_id is not None:
+        zone = await session.scalar(select(SeatZone).where(SeatZone.id == payload.zone_id, SeatZone.event_id == event.id))
+        if not zone:
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Zone not found for this event")
+        seat.zone_id = zone.id
+        if payload.price is None:
+            seat.price = float(zone.price)
+
+    if payload.seat_label is not None and payload.seat_label != seat.seat_label:
+        exists = await session.scalar(
+            select(func.count()).select_from(Seat).where(
+                Seat.event_id == event.id,
+                Seat.seat_label == payload.seat_label,
+                Seat.id != seat.id,
+            ),
+        )
+        if exists and exists > 0:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Seat label already exists for this event")
+        seat.seat_label = payload.seat_label
+
+    if payload.x is not None:
+        seat.x_coord = payload.x
+    if payload.y is not None:
+        seat.y_coord = payload.y
+    if payload.rotation is not None:
+        seat.rotation = payload.rotation
+    if payload.section_id is not None:
+        seat.section_id = payload.section_id
+    if payload.price is not None:
+        seat.price = float(payload.price)
+    if payload.is_admin_locked is not None:
+        _apply_admin_lock_state(seat, payload.is_admin_locked)
+
+    try:
+        await session.commit()
+        await session.refresh(seat)
+    except Exception:
+        await session.rollback()
+        raise
+
+    return SeatCreateResponse(
+        id=seat.id,
+        seat_label=seat.seat_label,
+        x=float(seat.x_coord) if seat.x_coord is not None else None,
+        y=float(seat.y_coord) if seat.y_coord is not None else None,
+    )
+
+
+@router.delete("/events/{event_key}/seats/{seat_id}", response_model=APIMessage)
+async def delete_event_seat(
+    event_key: str,
+    seat_id: int,
+    session: AsyncSession = Depends(get_db_session),
+    _: User = Depends(get_current_active_admin),
+) -> APIMessage:
+    """Delete one seat from an existing event."""
+
+    event = await get_event_by_slug_or_id(session, event_key)
+    seat = await session.scalar(select(Seat).where(Seat.id == seat_id, Seat.event_id == event.id))
+    if not seat:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Seat not found for this event")
+
+    await session.delete(seat)
+    try:
+        await session.commit()
+    except Exception:
+        await session.rollback()
+        raise
+
+    return APIMessage(detail="Seat deleted successfully")
 
 
 @router.patch("/events/{event_key}", response_model=EventDetailResponse)

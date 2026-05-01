@@ -1,14 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
-import { Link, useLocation, useNavigate, useSearchParams } from 'react-router-dom'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom'
 
 import { useAuth } from '@/context/AuthContext'
 import { Navbar } from '@/components/layout/Navbar'
 import { Footer } from '@/components/layout/Footer'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
-import { useCheckout } from '@/features/booking/hooks/useBooking'
+import { useCheckout, useReleaseSeats } from '@/features/booking/hooks/useBooking'
 import { useEventSeats } from '@/features/events/hooks/useEvents'
-import { gameApi } from '@/lib/api'
+import { bookingApi, gameApi } from '@/lib/api'
 import { queueStorage } from '@/lib/storage'
 import type { MyDiscount, Seat } from '@/types'
 import { AlertCircle, CreditCard, MapPin, QrCode, Rocket, Timer } from 'lucide-react'
@@ -23,6 +23,7 @@ export default function Checkout() {
   const navigate = useNavigate()
   const { isAuthenticated, user } = useAuth()
   const { checkout, isLoading: isSubmitting } = useCheckout()
+  const { releaseSeats, isLoading: isReleasing } = useReleaseSeats()
 
   const eventId = Number(searchParams.get('eventId'))
   const eventKey = searchParams.get('eventKey') ?? undefined
@@ -38,8 +39,13 @@ export default function Checkout() {
   const [discounts, setDiscounts] = useState<MyDiscount[]>([])
   const [selectedDiscountCode, setSelectedDiscountCode] = useState<string>('')
   const [discountAmount, setDiscountAmount] = useState(0)
+  const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null)
 
   const { seats: matrix } = useEventSeats(eventKey)
+  const checkoutCompletedRef = useRef(false)
+  const locksReleasedRef = useRef(false)
+  const latestEventIdRef = useRef<number | null>(null)
+  const latestLockedSeatIdsRef = useRef<number[]>([])
 
   const lockedSeats = useMemo(() => {
     const allSeats = matrix?.seats ?? []
@@ -53,6 +59,23 @@ export default function Checkout() {
 
   const subtotal = lockedSeats.reduce((sum, seat) => sum + Number(seat.price), 0)
   const total = Math.max(subtotal - discountAmount, 0)
+  const lockedSeatIds = useMemo(() => lockedSeats.map((seat) => seat.id), [lockedSeats])
+  const lockExpiryTimestamp = useMemo(() => {
+    const timestamps = lockedSeats
+      .map((seat) => (seat.lock_expires_at ? new Date(seat.lock_expires_at).getTime() : null))
+      .filter((value): value is number => Boolean(value) && !Number.isNaN(value))
+
+    if (timestamps.length === 0) return null
+    return Math.min(...timestamps)
+  }, [lockedSeats])
+  const countdownLabel = remainingSeconds === null
+    ? '--:--'
+    : `${String(Math.floor(remainingSeconds / 60)).padStart(2, '0')}:${String(remainingSeconds % 60).padStart(2, '0')}`
+
+  useEffect(() => {
+    latestEventIdRef.current = Number.isNaN(eventId) ? null : eventId
+    latestLockedSeatIdsRef.current = lockedSeatIds
+  }, [eventId, lockedSeatIds])
 
   useEffect(() => {
     const selected = discounts.find((item) => item.code === selectedDiscountCode && item.status === 'active' && item.event_id === eventId)
@@ -69,8 +92,54 @@ export default function Checkout() {
     void gameApi.myDiscounts().then(setDiscounts).catch(() => setDiscounts([]))
   }, [isAuthenticated])
 
+  useEffect(() => {
+    if (!lockExpiryTimestamp) {
+      setRemainingSeconds(null)
+      return
+    }
+
+    const updateRemaining = () => {
+      const seconds = Math.max(0, Math.floor((lockExpiryTimestamp - Date.now()) / 1000))
+      setRemainingSeconds(seconds)
+    }
+
+    updateRemaining()
+    const timer = window.setInterval(updateRemaining, 1000)
+    return () => window.clearInterval(timer)
+  }, [lockExpiryTimestamp])
+
+  useEffect(() => () => {
+    if (checkoutCompletedRef.current || locksReleasedRef.current) return
+    const currentEventId = latestEventIdRef.current
+    const currentSeatIds = latestLockedSeatIdsRef.current
+    if (!currentEventId || currentSeatIds.length === 0) return
+    locksReleasedRef.current = true
+    void bookingApi.release(currentEventId, currentSeatIds).catch(() => undefined)
+  }, [])
+
   const handleInputChange = (field: 'fullName' | 'email' | 'phone', value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
+  }
+
+  const handleBackToSeatSelection = async () => {
+    if (!eventKey) {
+      navigate('/search')
+      return
+    }
+
+    if (!eventId || Number.isNaN(eventId) || lockedSeatIds.length === 0 || locksReleasedRef.current) {
+      navigate(`/event/${eventKey}/seats`)
+      return
+    }
+
+    try {
+      await releaseSeats(eventId, lockedSeatIds)
+      locksReleasedRef.current = true
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : 'Failed to release held seats')
+    } finally {
+      navigate(`/event/${eventKey}/seats`)
+    }
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -95,6 +164,7 @@ export default function Checkout() {
       setErrorMessage('')
       const queueToken = eventKey ? queueStorage.getToken(eventKey) ?? undefined : undefined
       const result = await checkout(eventId, queueToken, selectedDiscountCode || undefined)
+      checkoutCompletedRef.current = true
       navigate('/confirmation', {
         state: {
           order: result,
@@ -179,7 +249,7 @@ export default function Checkout() {
             <Button
               type="submit"
               className="w-full py-6 rounded-2xl bg-gradient-to-r from-primary to-primary-container text-on-primary-container font-headline font-black uppercase tracking-widest text-lg flex items-center justify-center gap-3"
-              disabled={!termsAccepted || lockedSeats.length === 0}
+              disabled={!termsAccepted || lockedSeats.length === 0 || remainingSeconds === 0}
               isLoading={isSubmitting}
             >
               Complete Purchase
@@ -209,10 +279,14 @@ export default function Checkout() {
                   <span className="text-slate-500">Subtotal ({lockedSeats.length} seats)</span>
                   <span className="text-white">${subtotal.toFixed(2)}</span>
                 </div>
-                <div className="flex justify-between items-center text-sm">
-                  <span className="text-slate-500">Discount</span>
-                  <span className="text-emerald-300">-${discountAmount.toFixed(2)}</span>
-                </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-500">Discount</span>
+                <span className="text-emerald-300">-${discountAmount.toFixed(2)}</span>
+              </div>
+              <div className="flex justify-between items-center text-sm">
+                <span className="text-slate-500">Hold Timer</span>
+                <span className={remainingSeconds === 0 ? 'text-red-300' : 'text-secondary'}>{countdownLabel}</span>
+              </div>
               </div>
 
               <div className="pt-4 border-t border-white/5">
@@ -258,12 +332,11 @@ export default function Checkout() {
               <Timer className="text-secondary h-5 w-5" />
               <p className="text-xs text-secondary font-medium">Seats remain locked only for a limited time.</p>
             </div>
-
-            <Link to={eventKey ? `/event/${eventKey}/seats` : '/search'} className="block mt-4">
-              <Button variant="outline" className="w-full">
+            <div className="block mt-4">
+              <Button variant="outline" className="w-full" onClick={() => void handleBackToSeatSelection()} isLoading={isReleasing}>
                 Back To Seat Selection
               </Button>
-            </Link>
+            </div>
           </aside>
         </div>
       </main>

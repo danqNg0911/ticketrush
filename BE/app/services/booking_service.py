@@ -72,6 +72,10 @@ async def lock_seats(
                 failed_ids.append(seat_id)
 
         for seat in seats:
+            if seat.is_admin_locked:
+                failed_ids.append(seat.id)
+                continue
+
             if seat.status == SeatStatus.SOLD:
                 failed_ids.append(seat.id)
                 continue

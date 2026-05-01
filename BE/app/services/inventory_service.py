@@ -12,7 +12,7 @@ from app.models.enums import OrderStatus, SeatStatus
 from app.models.event import Event
 from app.models.order import Order, OrderItem, Ticket
 from app.models.seat import Seat
-from app.models.venue import Section, VenueLayout
+from app.models.venue import Polygon, Section, Venue, VenueLayout
 from app.schemas.booking import CheckoutItemResponse, CheckoutResponse, LockSeatsResponse
 from app.services.queue_service import ensure_queue_access, mark_queue_completed
 from app.ws.connection_manager import seat_ws_manager
@@ -41,6 +41,9 @@ async def get_seatmap(
     """Get full seat map with coordinates for frontend rendering."""
 
     event = await _get_event_or_404(session, event_id)
+    venue: Venue | None = None
+    if event.venue_id:
+        venue = await session.get(Venue, event.venue_id)
 
     # Get sections for this event's layout (if linked)
     sections: list[Section] = []
@@ -50,6 +53,16 @@ async def get_seatmap(
                 select(Section)
                 .where(Section.venue_layout_id == event.venue_layout_id)
                 .order_by(Section.sort_order.asc())
+            )
+        )
+
+    polygons: list[Polygon] = []
+    if event.venue_layout_id:
+        polygons = list(
+            await session.scalars(
+                select(Polygon)
+                .where(Polygon.venue_layout_id == event.venue_layout_id)
+                .order_by(Polygon.id.asc())
             )
         )
 
@@ -75,7 +88,7 @@ async def get_seatmap(
 
     seat_responses = []
     for seat in seats:
-        normalized_status = seat.status
+        normalized_status = SeatStatus.LOCKED if seat.is_admin_locked and seat.status != SeatStatus.SOLD else seat.status
         lock_expires = _as_utc(seat.lock_expires_at)
         if seat.status == SeatStatus.LOCKED and lock_expires and lock_expires < now:
             normalized_status = SeatStatus.AVAILABLE
@@ -92,13 +105,32 @@ async def get_seatmap(
             "status": normalized_status.value,
             "lock_expires_at": seat.lock_expires_at.isoformat() if seat.lock_expires_at else None,
             "is_locked_by_me": seat.locked_by_user_id == current_user_id,
+            "is_admin_locked": seat.is_admin_locked,
         })
 
     return {
         "event_id": event_id,
+        "event_slug": event.slug,
         "event_title": event.title,
         "venue_name": event.venue,
+        "queue_enabled": event.queue_enabled,
+        "background": {
+            "source": venue.background_source if venue else None,
+            "type": venue.background_type if venue else None,
+            "width": venue.width if venue else None,
+            "height": venue.height if venue else None,
+        } if venue else None,
         "sections": [section_map[s.id] for s in sections],
+        "polygons": [
+            {
+                "id": polygon.id,
+                "section_id": polygon.section_id,
+                "section_name": section_map.get(polygon.section_id, {}).get("name"),
+                "label": polygon.label,
+                "points": polygon.points,
+            }
+            for polygon in polygons
+        ],
         "seats": seat_responses,
         "seat_count": len(seats),
     }
@@ -139,6 +171,10 @@ async def lock_seats_by_label(
     changed_seats: list[dict[str, Any]] = []
 
     for seat in seats:
+        if seat.is_admin_locked:
+            failed_ids.append(seat.seat_label)
+            continue
+
         if seat.status == SeatStatus.SOLD:
             failed_ids.append(seat.seat_label)
             continue
