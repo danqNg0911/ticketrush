@@ -87,7 +87,7 @@ export const EventCard = forwardRef<HTMLAnchorElement, EventCardProps>(
           <div className="flex items-center justify-between pt-4 border-t border-white/5">
             <span className="text-secondary font-headline font-bold">{price}</span>
             <button className="bg-surface-container-highest hover:bg-primary hover:text-on-primary-container p-2 rounded-lg transition-colors">
-              <span className="material-symbols-outlined text-sm">arrow_forward</span>
+              <span className="material-symbols-outlined text-sm">Chi tiết</span>
             </button>
           </div>
         </div>

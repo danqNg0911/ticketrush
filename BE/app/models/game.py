@@ -10,9 +10,10 @@ from app.models.base import Base, TimestampMixin
 
 class GameConfig(TimestampMixin, Base):
     __tablename__ = "game_configs"
+    __table_args__ = (UniqueConstraint("event_id", "game_type", name="uq_game_configs_event_game_type"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True, unique=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id", ondelete="CASCADE"), nullable=False, index=True)
     game_type: Mapped[str] = mapped_column(String(30), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     daily_reset_cron: Mapped[str] = mapped_column(String(60), default="0 0 * * *", nullable=False)

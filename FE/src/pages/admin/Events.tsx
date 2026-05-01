@@ -95,18 +95,19 @@ function StatusSelect({ statusFilter, setStatusFilter }: StatusSelectProps) {
     { value: 'closed', label: 'Closed' },
   ];
 
+
   return (
     <Listbox value={statusFilter} onChange={(value) => setStatusFilter(value)}>
       <div className="relative">
         <Listbox.Button className="w-48 px-3 py-2 bg-space-800 text-white border border-gray-600 rounded-md shadow-sm text-left">
           {statuses.find((r) => r.value === statusFilter)?.label}
         </Listbox.Button>
-        <Listbox.Options className="absolute z-50 mt-1 w-48 bg-space-900 text-white border border-white/20 rounded-md shadow-lg">
+        <Listbox.Options className="absolute z-50 mt-1 w-48 bg-slate-900 text-white border border-white/20 rounded-md shadow-lg">
           {statuses.map((status) => (
             <Listbox.Option
               key={status.value}
               value={status.value}
-              className="px-3 py-2 cursor-pointer hover:bg-space-700"
+              className="px-3 py-2 z-50 cursor-pointer hover:bg-space-700"
             >
               {status.label}
             </Listbox.Option>
@@ -588,7 +589,7 @@ export default function AdminEvents() {
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">Status</label>
-              <select className="w-full rounded-lg border bg-space-700/50 border-white/20 px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-red" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as EventStatus })}>
+              <select className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as EventStatus })}>
                 <option value="draft">Draft</option>
                 <option value="live">Live</option>
                 <option value="closed">Closed</option>
@@ -596,7 +597,7 @@ export default function AdminEvents() {
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">Queue</label>
-              <select className="w-full rounded-lg border bg-space-700/50 border-white/20 px-4 py-2.5 text-white focus:outline-none focus:ring-2 focus:ring-brand-red" value={form.queue_enabled ? 'true' : 'false'} onChange={(event) => setForm({ ...form, queue_enabled: event.target.value === 'true' })}>
+              <select className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2" value={form.queue_enabled ? 'true' : 'false'} onChange={(event) => setForm({ ...form, queue_enabled: event.target.value === 'true' })}>
                 <option value="true">Enabled</option>
                 <option value="false">Disabled</option>
               </select>
@@ -810,10 +811,7 @@ export default function AdminEvents() {
                   placeholder="#024ddf"
                   className="flex-1"
                 />
-                <div
-                  className="w-8 h-8 rounded border border-white/20 shadow-inner transition-colors"
-                  style={{ backgroundColor: zoneForm.color || '#000000' }}
-                />
+                
               </div>
             </div>
           </div>

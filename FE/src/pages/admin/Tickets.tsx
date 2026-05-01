@@ -54,7 +54,7 @@ function FilterListbox({ value, options, onChange, buttonClassName = 'w-48' }: F
         >
           {selectedLabel}
         </Listbox.Button>
-        <Listbox.Options className={`absolute z-50 mt-1 ${buttonClassName} bg-space-900 text-white border border-white/20 rounded-md shadow-lg`}>
+        <Listbox.Options className={`absolute z-50 mt-1 ${buttonClassName} bg-slate-900 text-white border border-white/20 rounded-md shadow-lg`}>
           {options.map((option) => (
             <Listbox.Option key={option.value} value={option.value} className="px-3 py-2 cursor-pointer hover:bg-space-700 text-sm">
               {option.label}

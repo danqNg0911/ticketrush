@@ -28,7 +28,7 @@ export function GameProvider({ children }: { children: ReactNode }) {
       const next = await gameApi.status(eventId)
       setStatus(next)
     } catch {
-      setError('He thong dang ban, vui long thu lai sau 30s')
+      setError('Hệ thống đang bận, vui lòng thử lại sau 30s')
     } finally {
       setIsLoading(false)
     }
