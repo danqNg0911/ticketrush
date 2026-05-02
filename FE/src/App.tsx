@@ -30,6 +30,7 @@ import AdminAnalytics from './pages/admin/Analytics'
 import AdminUsers from './pages/admin/Users'
 import AdminSettings from './pages/admin/Settings'
 import AdminGames from './pages/admin/Games'
+import AdminHelp from './pages/admin/Help'
 import { LoadingProvider } from '@/context/LoadingContext'
 
 function RequireAdmin({ children }: { children: React.ReactNode }) {
@@ -99,6 +100,7 @@ function AppRoutes() {
           <Route path="analytics" element={<AdminAnalytics />} />
           <Route path="users" element={<AdminUsers />} />
           <Route path="games" element={<AdminGames />} />
+          <Route path="help" element={<AdminHelp />} />
           <Route path="settings" element={<AdminSettings />} />
         </Route>
       </Routes>

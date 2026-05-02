@@ -1,5 +1,6 @@
 import LottieImport from 'lottie-react'
 import { useEffect, useState } from 'react'
+import { useTheme } from '@/context/ThemeContext'
 import LogoSVG from '@/assets/logo.svg'
 
 const Lottie = (LottieImport as any).default || LottieImport
@@ -11,6 +12,7 @@ export function Logo() {
 }
 
 export function GlobalLoader() {
+  const { theme } = useTheme()
   const [animation, setAnimation] = useState(null)
 
   useEffect(() => {
@@ -23,13 +25,10 @@ export function GlobalLoader() {
   if (!animation) return null
 
   return (
-    <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-950 gap">
+    <div className={`fixed inset-0 z-[9999] flex items-center justify-center ${theme === 'light' ? 'bg-white' : 'bg-slate-950'}`}>
       <div className="w-40 h-40">
         <Lottie animationData={animation} />
-          
       </div>
-    <Logo/>
     </div>
-    
   )
 }

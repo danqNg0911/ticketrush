@@ -514,9 +514,9 @@ export default function AdminEvents() {
                     <Button variant="ghost" size="sm" onClick={() => navigate(`/admin/events/${event.slug}/seating`)}>
                       <Wand2 className="h-4 w-4" /> Seat Planner
                     </Button>
-                    <Button variant="ghost" size="sm" onClick={() => openZoneModal(event.slug)}>
+                    {/* <Button variant="ghost" size="sm" onClick={() => openZoneModal(event.slug)}>
                       <LayoutGrid className="h-4 w-4" /> Zone
-                    </Button>
+                    </Button> */}
                     <Button variant="ghost" size="sm" onClick={() => openEditModal(event)}>
                       <Edit className="h-4 w-4" /> Sửa
                     </Button>

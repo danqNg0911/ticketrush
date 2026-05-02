@@ -69,9 +69,10 @@ export function LuckyWheel({ status, onPlay, playsLeft }: LuckyWheelProps) {
     const nextRotation = rotation + 360 * 6 + targetAngle
 
     setRotation(nextRotation)
-    setResult(response)
-
-    setTimeout(() => setSpinning(false), 4200)
+    setTimeout(() => {
+      setResult(response)
+      setSpinning(false)
+    }, 4200)
   }
 
   useEffect(() => {

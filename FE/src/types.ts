@@ -445,6 +445,38 @@ export interface ApiMessage {
   detail: string
 }
 
+export interface HelpThread {
+  id: number
+  customer_id: number
+  customer_name: string
+  customer_email: string
+  last_message_at: string
+  last_message_preview: string
+  status: string
+  unread_admin: number
+  unread_customer: number
+  created_at: string
+  updated_at: string
+}
+
+export interface HelpMessage {
+  id: number
+  thread_id: number
+  sender_id: number
+  sender_role: string
+  content: string
+  message_type: string
+  read_at: string | null
+  created_at: string
+}
+
+export interface SearchSuggestionItem {
+  label: string
+  value: string
+  item_type: string
+  meta: Record<string, string | number | null>
+}
+
 export interface AdminUserItem {
   id: number
   full_name: string

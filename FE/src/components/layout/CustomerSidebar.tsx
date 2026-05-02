@@ -9,6 +9,7 @@ interface CustomerSidebarProps {
   userName?: string;
   membershipLevel?: string;
   onNavigate?: (tab: string) => void;
+  className?: string;
 }
 
 export const CustomerSidebar: React.FC<CustomerSidebarProps> = ({
@@ -16,6 +17,7 @@ export const CustomerSidebar: React.FC<CustomerSidebarProps> = ({
   userName = 'Alex Voyager',
   membershipLevel = '',
   onNavigate,
+  className,
 }) => {
   // Cấu hình Menu chính (Account)
   const menuItems = [
@@ -35,7 +37,7 @@ export const CustomerSidebar: React.FC<CustomerSidebarProps> = ({
   const isActive = (id: string) => activeTab === id;
 
   return (
-    <aside className="w-72 h-[calc(100vh-80px)] bg-slate-900/50 border-r border-white/5 p-6 flex flex-col gap-8 sticky top-[80px] overflow-y-auto">
+    <aside className={`w-72 h-[calc(100vh-80px)] bg-slate-900/50 border-r border-white/5 p-6 flex flex-col gap-8 sticky top-[80px] overflow-y-auto ${className ?? ''}`}>
       
       {/* User Profile Section */}
       <div className="flex flex-col items-center text-center pb-6 border-b border-white/5">
