@@ -91,20 +91,20 @@ export default function Help() {
           </div>
         )}
 
-        <main className="flex-1 p-6 lg:p-12 max-w-5xl mx-auto">
+        <main className="flex-1 p-4 sm:p-6 lg:p-12 max-w-5xl mx-auto">
           <button className="lg:hidden mb-4 p-2 rounded bg-surface-container" onClick={() => setDrawerOpen((v) => !v)}>
             {drawerOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
           </button>
           <header className="mb-6">
-            <h1 className="text-5xl font-black text-on-background font-headline tracking-tighter">Help Center</h1>
+            <h1 className="text-3xl sm:text-5xl font-black text-on-background font-headline tracking-tighter">Help Center</h1>
             <p className="text-on-surface-variant mt-2 max-w-lg">Chat trực tiếp với admin support.</p>
           </header>
 
-          <div className="glass-panel rounded-2xl overflow-hidden flex flex-col h-[calc(100vh-280px)] min-h-[500px]">
+          <div className="glass-panel rounded-2xl overflow-hidden flex flex-col h-[calc(100vh-220px)] sm:h-[calc(100vh-250px)] lg:h-[calc(100vh-280px)] min-h-[420px] sm:min-h-[500px]">
             <div className="flex-1 overflow-y-auto p-4 space-y-4">
               {messages.map((message) => (
                 <div key={message.id} className={`flex ${message.sender_id === user?.id ? 'justify-end' : 'justify-start'}`}>
-                  <div className={`max-w-[70%] rounded-2xl px-4 py-3 ${message.sender_id === user?.id ? 'bg-primary-container text-on-primary-container rounded-br-md' : 'bg-surface-container-high text-on-surface rounded-bl-md'}`}>
+                  <div className={`max-w-[88%] sm:max-w-[70%] rounded-2xl px-4 py-3 ${message.sender_id === user?.id ? 'bg-primary-container text-on-primary-container rounded-br-md' : 'bg-surface-container-high text-on-surface rounded-bl-md'}`}>
                     <p className="text-sm">{message.content}</p>
                   </div>
                 </div>

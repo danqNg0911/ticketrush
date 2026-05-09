@@ -100,10 +100,10 @@ function StatusSelect({ statusFilter, setStatusFilter }: StatusSelectProps) {
   return (
     <Listbox value={statusFilter} onChange={(value) => setStatusFilter(value)}>
       <div className="relative">
-        <Listbox.Button className="w-48 px-3 py-2 bg-space-800 text-white border border-gray-600 rounded-md shadow-sm text-left">
+        <Listbox.Button className="w-full md:w-48 px-3 py-2 bg-space-800 text-white border border-gray-600 rounded-md shadow-sm text-left">
           {statuses.find((r) => r.value === statusFilter)?.label}
         </Listbox.Button>
-        <Listbox.Options className="absolute z-50 mt-1 w-48 bg-slate-900 text-white border border-white/20 rounded-md shadow-lg">
+        <Listbox.Options className="absolute z-50 mt-1 w-full md:w-48 bg-slate-900 text-white border border-white/20 rounded-md shadow-lg">
           {statuses.map((status) => (
             <Listbox.Option
               key={status.value}
@@ -411,7 +411,7 @@ export default function AdminEvents() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-2xl font-bold text-white">Quản lý sự kiện</h1>
         <Button
           className="py-4 rounded-xl bg-gradient-to-r from-primary to-primary-container text-on-primary-container font-headline font-bold uppercase tracking-widest text-sm glow-button hover:scale-[1.02] active:scale-[0.98] transition-all duration-300 flex items-center justify-center gap-2 group/btn"
@@ -438,9 +438,9 @@ export default function AdminEvents() {
                 onChange={(event) => setSearchTerm(event.target.value)}
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 w-full md:w-auto">
               <Filter className="h-4 w-4 text-gray-400" />
-              <div className="relative">
+              <div className="relative w-full">
                 <StatusSelect statusFilter={statusFilter} setStatusFilter={setStatusFilter} />
                 <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
                   <svg className="h-4 w-4 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
@@ -566,7 +566,7 @@ export default function AdminEvents() {
             <label className="block text-sm font-medium text-gray-300 mb-2">Mô tả</label>
             <textarea className="w-full rounded-lg border bg-space-700/50 border-white/20 px-4 py-2.5 text-white placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-brand-red" rows={3} value={form.description} onChange={(event) => setForm({ ...form, description: event.target.value })} />
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">Category</label>
               <Input value={form.category} onChange={(event) => setForm({ ...form, category: event.target.value })} />
@@ -581,7 +581,7 @@ export default function AdminEvents() {
               />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">Start at</label>
               <Input type="datetime-local" value={form.start_at} onChange={(event) => setForm({ ...form, start_at: event.target.value })} />
@@ -591,7 +591,7 @@ export default function AdminEvents() {
               <Input type="datetime-local" value={form.end_at} onChange={(event) => setForm({ ...form, end_at: event.target.value })} />
             </div>
           </div>
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">Status</label>
               <select className="w-full bg-slate-800 border border-white/10 rounded-lg px-3 py-2" value={form.status} onChange={(event) => setForm({ ...form, status: event.target.value as EventStatus })}>
@@ -633,7 +633,7 @@ export default function AdminEvents() {
               )}
             </div>
           </div>
-          <div className="grid grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
             <div>
               <label className="block text-sm font-medium text-gray-300 mb-2">Hold (min)</label>
               <Input type="number" min={1} value={form.hold_minutes} onChange={(event) => setForm({ ...form, hold_minutes: event.target.value })} />
@@ -703,11 +703,11 @@ export default function AdminEvents() {
                 ) : (
                   <>
                     <p className="text-sm text-gray-300 mt-4 mb-3">Zone khởi tạo</p>
-                    <div className="grid grid-cols-2 gap-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div><label className="block text-sm font-medium text-gray-300 mb-2">Zone code</label><Input value={form.zone_code} onChange={(event) => setForm({ ...form, zone_code: event.target.value })} /></div>
                       <div><label className="block text-sm font-medium text-gray-300 mb-2">Zone name</label><Input value={form.zone_name} onChange={(event) => setForm({ ...form, zone_name: event.target.value })} /></div>
                     </div>
-                    <div className="grid grid-cols-3 gap-4 mt-4">
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
                       <div><label className="block text-sm font-medium text-gray-300 mb-2">Rows</label><Input type="number" min={1} value={form.row_count} onChange={(event) => setForm({ ...form, row_count: event.target.value })} /></div>
                       <div><label className="block text-sm font-medium text-gray-300 mb-2">Seats/row</label><Input type="number" min={1} value={form.seats_per_row} onChange={(event) => setForm({ ...form, seats_per_row: event.target.value })} /></div>
                       <div><label className="block text-sm font-medium text-gray-300 mb-2">Price</label><Input type="number" min={1} value={form.zone_price} onChange={(event) => setForm({ ...form, zone_price: event.target.value })} /></div>
@@ -774,7 +774,7 @@ export default function AdminEvents() {
             <p className="text-sm font-medium text-gray-300 mb-3 flex items-center gap-2">
               <Palette className="h-4 w-4" /> {editingZoneId ? 'Chỉnh sửa Zone' : 'Thêm Zone mới'}
             </p>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">Zone Code</label>
                 <Input value={zoneForm.code} onChange={(e) => setZoneForm({ ...zoneForm, code: e.target.value })} placeholder="VD: A, B, VIP" />
@@ -784,7 +784,7 @@ export default function AdminEvents() {
                 <Input value={zoneForm.name} onChange={(e) => setZoneForm({ ...zoneForm, name: e.target.value })} placeholder="VD: Standard, VIP" />
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-4 mt-4">
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mt-4">
               <div>
                 <label className="block text-sm font-medium text-gray-300 mb-2">Rows</label>
                 <Input type="number" min={1} value={zoneForm.row_count} onChange={(e) => setZoneForm({ ...zoneForm, row_count: Number(e.target.value) })} />

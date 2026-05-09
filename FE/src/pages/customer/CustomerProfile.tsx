@@ -1,5 +1,6 @@
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
+import { Menu, X } from 'lucide-react'
 
 import { CustomerSidebar } from '@/components/layout/CustomerSidebar'
 import { Navbar } from '@/components/layout/Navbar'
@@ -24,12 +25,21 @@ export default function CustomerProfile() {
   const [gender, setGender] = useState<'male' | 'female' | 'other'>(user?.gender ?? 'other')
   const [age, setAge] = useState<number>(user?.age ?? 18)
   const [isSaving, setIsSaving] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const [message, setMessage] = useState<string>('')
   const [error, setError] = useState<string>('')
 
   const estimatedBirthYear = useMemo(() => inferBirthYear(age), [age])
 
+  useEffect(() => {
+    document.body.style.overflow = drawerOpen ? 'hidden' : ''
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [drawerOpen])
+
   const onSidebarNavigate = (tab: string) => {
+    setDrawerOpen(false)
     if (tab === 'tickets') return navigate('/tickets')
     if (tab === 'profile') return navigate('/profile')
     if (tab === 'favourites') return navigate('/favourites') 
@@ -70,20 +80,37 @@ export default function CustomerProfile() {
     <>
       <Navbar />
       <div className="pt-[80px] min-h-screen bg-[#0B0F19] flex">
-        <CustomerSidebar
-          activeTab="profile"
-          userName={user?.full_name ?? 'Customer'}
-          membershipLevel="Stellar Member"
-          onNavigate={onSidebarNavigate}
-        />
+        <div className="hidden lg:block">
+          <CustomerSidebar
+            activeTab="profile"
+            userName={user?.full_name ?? 'Customer'}
+            membershipLevel="Stellar Member"
+            onNavigate={onSidebarNavigate}
+          />
+        </div>
+        {drawerOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <button className="absolute inset-0 bg-black/60" onClick={() => setDrawerOpen(false)} />
+            <CustomerSidebar
+              activeTab="profile"
+              userName={user?.full_name ?? 'Customer'}
+              membershipLevel="Stellar Member"
+              onNavigate={onSidebarNavigate}
+              className="relative"
+            />
+          </div>
+        )}
 
-        <main className="flex-1 p-8 lg:p-12 max-w-4xl mx-auto space-y-8">
+        <main className="flex-1 p-4 sm:p-6 lg:p-12 max-w-4xl mx-auto space-y-8">
+          <button className="lg:hidden mb-4 p-2 rounded bg-surface-container" onClick={() => setDrawerOpen((v) => !v)}>
+            {drawerOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
           <div>
-            <h1 className="text-4xl font-black text-white font-headline tracking-tight">Hồ sơ Khách hàng</h1>
+            <h1 className="text-3xl sm:text-4xl font-black text-white font-headline tracking-tight">Hồ sơ Khách hàng</h1>
             <p className="text-slate-400 mt-2">Quản lý thông tin tài khoản của bạn</p>
           </div>
 
-          <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-6 space-y-6">
+          <div className="rounded-2xl border border-white/10 bg-slate-900/60 p-4 sm:p-6 space-y-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
               <div className="space-y-2">
                 <label className="text-xs font-bold text-slate-500 uppercase tracking-wider">Họ tên </label>

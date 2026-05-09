@@ -1,16 +1,26 @@
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CustomerSidebar } from '@/components/layout/CustomerSidebar'
 import { Navbar } from '@/components/layout/Navbar'
 import { useTheme } from '@/context/ThemeContext'
-import { Moon, Sun } from 'lucide-react'
+import { Menu, Moon, Sun, X } from 'lucide-react'
 import { useAuth } from '@/context/AuthContext'
 
 export default function CustomerSettings() {
   const navigate = useNavigate()
-  const { logout } = useAuth()
+  const { user, logout } = useAuth()
   const { theme, setTheme } = useTheme()
+  const [drawerOpen, setDrawerOpen] = useState(false)
+
+  useEffect(() => {
+    document.body.style.overflow = drawerOpen ? 'hidden' : ''
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [drawerOpen])
 
   const onSidebarNavigate = (tab: string) => {
+    setDrawerOpen(false)
     if (tab === 'tickets') return navigate('/tickets')
     if (tab === 'profile') return navigate('/profile')
     if (tab === 'favourites') return navigate('/favourites') 
@@ -27,16 +37,33 @@ export default function CustomerSettings() {
     <>
       <Navbar />
       <div className="pt-[80px] min-h-screen flex">
-        <CustomerSidebar
-          activeTab="settings"
-          userName="Customer"
-          membershipLevel="Stellar Member"
-          onNavigate={onSidebarNavigate}
-        />
+        <div className="hidden lg:block">
+          <CustomerSidebar
+            activeTab="settings"
+            userName={user?.full_name ?? 'Customer'}
+            membershipLevel="Stellar Member"
+            onNavigate={onSidebarNavigate}
+          />
+        </div>
+        {drawerOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <button className="absolute inset-0 bg-black/60" onClick={() => setDrawerOpen(false)} />
+            <CustomerSidebar
+              activeTab="settings"
+              userName={user?.full_name ?? 'Customer'}
+              membershipLevel="Stellar Member"
+              onNavigate={onSidebarNavigate}
+              className="relative"
+            />
+          </div>
+        )}
 
-        <main className="flex-1 p-8 lg:p-12 max-w-4xl mx-auto space-y-8">
+        <main className="flex-1 p-4 sm:p-6 lg:p-12 max-w-4xl mx-auto space-y-8">
+          <button className="lg:hidden mb-4 p-2 rounded bg-surface-container" onClick={() => setDrawerOpen((v) => !v)}>
+            {drawerOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
           <div>
-            <h1 className="text-4xl font-black text-on-background font-headline tracking-tight">Settings</h1>
+            <h1 className="text-3xl sm:text-4xl font-black text-on-background font-headline tracking-tight">Settings</h1>
             <p className="text-slate-500 mt-2">Manage your account settings and preferences.</p>
           </div>
 
@@ -52,7 +79,7 @@ export default function CustomerSettings() {
                 Theme Preference
               </label>
 
-              <div className="grid grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Dark Mode Option */}
                 <button
                   onClick={() => setTheme('dark')}

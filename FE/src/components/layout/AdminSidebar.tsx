@@ -1,6 +1,6 @@
 import { cn } from '@/lib/utils'
 import { NavLink, useLocation, useNavigate } from 'react-router-dom'
-import { Building2, LayoutDashboard, CalendarDays, Users, BarChart3, Settings, LogOut, Ticket, Gamepad2, MessageCircle } from 'lucide-react'
+import { Building2, LayoutDashboard, CalendarDays, Users, BarChart3, Settings, LogOut, Ticket, MessageCircle } from 'lucide-react'
 import { useAuth } from '../../context/AuthContext'
 import LogoSVG from '@/assets/logo.svg'
 
@@ -11,7 +11,6 @@ const adminLinks = [
   { label: 'Vé & Doanh thu', href: '/admin/tickets', icon: Ticket, exact: false },
   { label: 'Thống kê', href: '/admin/analytics', icon: BarChart3, exact: false },
   { label: 'Người dùng', href: '/admin/users', icon: Users, exact: false },
-  { label: 'Game', href: '/admin/games', icon: Gamepad2, exact: false },
   { label: 'Help', href: '/admin/help', icon: MessageCircle, exact: false },
   { label: 'Cài đặt', href: '/admin/settings', icon: Settings, exact: false },
 ]

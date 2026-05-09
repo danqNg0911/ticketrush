@@ -43,7 +43,7 @@ interface FilterListboxProps {
   buttonClassName?: string
 }
 
-function FilterListbox({ value, options, onChange, buttonClassName = 'w-48' }: FilterListboxProps) {
+function FilterListbox({ value, options, onChange, buttonClassName = 'w-full sm:w-48' }: FilterListboxProps) {
   const selectedLabel = options.find((option) => option.value === value)?.label ?? options[0]?.label ?? ''
 
   return (
@@ -143,12 +143,12 @@ export default function AdminTickets() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between gap-3">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <div>
           <h2 className="text-2xl font-display font-bold text-white">Vé và Doanh thu</h2>
           <p className="text-gray-400 mt-1">Filter va phân trang server-side cho ticket sales</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={() => void loadTicketsData(true)} isLoading={refreshing}>
             <RefreshCcw className="h-4 w-4" />
             Làm mới
@@ -166,7 +166,7 @@ export default function AdminTickets() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-6">
         <Card>
           <CardContent className="pt-6">
             <div className="flex items-center justify-between">
@@ -239,9 +239,9 @@ export default function AdminTickets() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="flex items-center justify-between gap-2">
+          <CardTitle className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
             <span>Giao dịch vé gần đây</span>
-            <div className="flex items-center gap-2">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 w-full sm:w-auto">
               <FilterListbox
                 value={eventFilter}
                 options={eventOptions}
@@ -249,7 +249,7 @@ export default function AdminTickets() {
                   setEventFilter(value)
                   setPage(1)
                 }}
-                buttonClassName="w-56"
+                buttonClassName="w-full sm:w-56"
               />
               <FilterListbox
                 value={statusFilter}
@@ -258,7 +258,7 @@ export default function AdminTickets() {
                   setStatusFilter(value)
                   setPage(1)
                 }}
-                buttonClassName="w-40"
+                buttonClassName="w-full sm:w-40"
               />
             </div>
           </CardTitle>
@@ -299,7 +299,7 @@ export default function AdminTickets() {
             </div>
           )}
 
-          <div className="mt-4 flex justify-end gap-2">
+          <div className="mt-4 flex flex-wrap justify-end gap-2">
             <Button variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => setPage((value) => Math.max(1, value - 1))}>Trước</Button>
             <Button variant="outline" size="sm" disabled={page >= totalPages || loading} onClick={() => setPage((value) => Math.min(totalPages, value + 1))}>Sau</Button>
           </div>

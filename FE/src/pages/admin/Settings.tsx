@@ -149,7 +149,7 @@ export default function AdminSettings() {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 rounded-lg bg-space-700/30 border border-white/10">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg bg-space-700/30 border border-white/10">
                     <div className="flex items-center gap-3">
                       <Mail className="h-5 w-5 text-brand-yellow" />
                       <div>
@@ -163,7 +163,7 @@ export default function AdminSettings() {
                     </label>
                   </div>
 
-                  <div className="flex items-center justify-between p-4 rounded-lg bg-space-700/30 border border-white/10">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg bg-space-700/30 border border-white/10">
                     <div className="flex items-center gap-3">
                       <Bell className="h-5 w-5 text-green-400" />
                       <div>
@@ -177,7 +177,7 @@ export default function AdminSettings() {
                     </label>
                   </div>
 
-                  <div className="flex items-center justify-between p-4 rounded-lg bg-space-700/30 border border-white/10">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg bg-space-700/30 border border-white/10">
                     <div className="flex items-center gap-3">
                       <Globe className="h-5 w-5 text-blue-400" />
                       <div>
@@ -214,7 +214,7 @@ export default function AdminSettings() {
               </CardHeader>
               <CardContent className="space-y-6">
                 <div className="space-y-4">
-                  <div className="flex items-center justify-between p-4 rounded-lg bg-space-700/30 border border-white/10">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg bg-space-700/30 border border-white/10">
                     <div className="flex items-center gap-3">
                       <div className="h-10 w-10 rounded-lg bg-blue-500/20 flex items-center justify-center">
                         <CreditCard className="h-5 w-5 text-blue-400" />
@@ -227,7 +227,7 @@ export default function AdminSettings() {
                     <Badge variant="success">Đã kích hoạt</Badge>
                   </div>
 
-                  <div className="flex items-center justify-between p-4 rounded-lg bg-space-700/30 border border-white/10">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg bg-space-700/30 border border-white/10">
                     <div className="flex items-center gap-3">
                       <div className="h-10 w-10 rounded-lg bg-green-500/20 flex items-center justify-center">
                         <Globe className="h-5 w-5 text-green-400" />
@@ -240,7 +240,7 @@ export default function AdminSettings() {
                     <Badge variant="success">Đã kích hoạt</Badge>
                   </div>
 
-                  <div className="flex items-center justify-between p-4 rounded-lg bg-space-700/30 border border-white/10">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 p-4 rounded-lg bg-space-700/30 border border-white/10">
                     <div className="flex items-center gap-3">
                       <div className="h-10 w-10 rounded-lg bg-purple-500/20 flex items-center justify-center">
                         <Shield className="h-5 w-5 text-purple-400" />
@@ -321,7 +321,7 @@ export default function AdminSettings() {
 
                 <div>
                   <label className="block text-sm font-medium text-on-surface-variant mb-4">Chế độ hiển thị</label>
-                  <div className="grid grid-cols-2 gap-4">
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <button
                       onClick={() => setTheme('dark')}
                       className={`relative p-4 rounded-lg border transition-all ${

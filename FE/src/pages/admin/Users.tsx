@@ -44,12 +44,12 @@ function RoleSelect({ roleFilter, setRoleFilter }: RoleSelectProps) {
     <Listbox value={roleFilter} onChange={(value) => setRoleFilter(value)}>
       <div className="relative">
         <Listbox.Button
-          className="w-48 px-3 py-2 bg-space-800 text-white border border-gray-600 rounded-md shadow-sm text-left"
+          className="w-full md:w-48 px-3 py-2 bg-space-800 text-white border border-gray-600 rounded-md shadow-sm text-left"
         >
           {roles.find((r) => r.value === roleFilter)?.label}
         </Listbox.Button>
         <Listbox.Options
-          className="absolute z-50 mt-1 w-48 bg-slate-900 text-white border border-white/20 rounded-md shadow-lg"
+          className="absolute z-50 mt-1 w-full md:w-48 bg-slate-900 text-white border border-white/20 rounded-md shadow-lg"
         >
           {roles.map((role) => (
             <Listbox.Option
@@ -118,7 +118,7 @@ export default function AdminUsers() {
         </Card>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-3 gap-4">
         <Card>
           <CardContent className="pt-6">
             <p className="text-sm text-gray-400">Tổng users (filtered)</p>
@@ -154,9 +154,9 @@ export default function AdminUsers() {
                 }}
               />
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 w-full md:w-auto">
               <Filter className="h-4 w-4 text-gray-400" />
-              <div className="relative">
+              <div className="relative w-full">
                 <RoleSelect roleFilter={roleFilter} setRoleFilter={setRoleFilter} />
                 <div className="pointer-events-none absolute inset-y-0 right-0 flex items-center px-3 text-gray-500">
                   <svg className="h-4 w-4 fill-current" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20">
@@ -216,7 +216,7 @@ export default function AdminUsers() {
             </div>
           )}
 
-          <div className="mt-4 flex justify-end gap-2">
+          <div className="mt-4 flex flex-wrap justify-end gap-2">
             <Button variant="outline" size="sm" disabled={page <= 1 || loading} onClick={() => setPage((value) => Math.max(1, value - 1))}>
               Trước
             </Button>

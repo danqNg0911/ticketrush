@@ -8,9 +8,9 @@ import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
 import { useCheckout, useReleaseSeats } from '@/features/booking/hooks/useBooking'
 import { useEventSeats } from '@/features/events/hooks/useEvents'
-import { bookingApi, gameApi } from '@/lib/api'
+import { bookingApi } from '@/lib/api'
 import { queueStorage } from '@/lib/storage'
-import type { MyDiscount, Seat } from '@/types'
+import type { Seat } from '@/types'
 import { AlertCircle, CreditCard, MapPin, QrCode, Rocket, Timer } from 'lucide-react'
 
 interface CheckoutLocationState {
@@ -36,9 +36,7 @@ export default function Checkout() {
     phone: '',
   })
   const [errorMessage, setErrorMessage] = useState<string>('')
-  const [discounts, setDiscounts] = useState<MyDiscount[]>([])
   const [selectedDiscountCode, setSelectedDiscountCode] = useState<string>('')
-  const [discountAmount, setDiscountAmount] = useState(0)
   const [remainingSeconds, setRemainingSeconds] = useState<number | null>(null)
 
   const { seats: matrix } = useEventSeats(eventKey)
@@ -58,7 +56,7 @@ export default function Checkout() {
   }, [matrix?.seats, state.lockedSeatIds])
 
   const subtotal = lockedSeats.reduce((sum, seat) => sum + Number(seat.price), 0)
-  const total = Math.max(subtotal - discountAmount, 0)
+  const total = subtotal
   const lockedSeatIds = useMemo(() => lockedSeats.map((seat) => seat.id), [lockedSeats])
   const lockExpiryTimestamp = useMemo(() => {
     const timestamps = lockedSeats
@@ -76,21 +74,6 @@ export default function Checkout() {
     latestEventIdRef.current = Number.isNaN(eventId) ? null : eventId
     latestLockedSeatIdsRef.current = lockedSeatIds
   }, [eventId, lockedSeatIds])
-
-  useEffect(() => {
-    const selected = discounts.find((item) => item.code === selectedDiscountCode && item.status === 'active' && item.event_id === eventId)
-    if (!selected) {
-      setDiscountAmount(0)
-      return
-    }
-    const nextDiscount = subtotal * (Number(selected.discount_percent) / 100)
-    setDiscountAmount(nextDiscount)
-  }, [discounts, selectedDiscountCode, subtotal, eventId])
-
-  useEffect(() => {
-    if (!isAuthenticated) return
-    void gameApi.myDiscounts().then(setDiscounts).catch(() => setDiscounts([]))
-  }, [isAuthenticated])
 
   useEffect(() => {
     if (!lockExpiryTimestamp) {
@@ -280,10 +263,6 @@ export default function Checkout() {
                   <span className="text-white">${subtotal.toFixed(2)}</span>
                 </div>
               <div className="flex justify-between items-center text-sm">
-                <span className="text-slate-500">Discount</span>
-                <span className="text-emerald-300">-${discountAmount.toFixed(2)}</span>
-              </div>
-              <div className="flex justify-between items-center text-sm">
                 <span className="text-slate-500">Hold Timer</span>
                 <span className={remainingSeconds === 0 ? 'text-red-300' : 'text-secondary'}>{countdownLabel}</span>
               </div>
@@ -311,20 +290,12 @@ export default function Checkout() {
               )}
               <div className="mt-4">
                 <label className="text-xs text-slate-400 uppercase tracking-wider">Voucher</label>
-                <select
+                <Input
                   className="mt-2 w-full rounded-lg border bg-slate-800 border-white/20 px-3 py-2 text-white"
                   value={selectedDiscountCode}
                   onChange={(e) => setSelectedDiscountCode(e.target.value)}
-                >
-                  <option value="">No voucher</option>
-                  {discounts
-                    .filter((item) => item.status === 'active' && item.event_id === eventId)
-                    .map((item) => (
-                      <option key={item.code} value={item.code}>
-                        {item.code} - {item.discount_percent}% ({item.tier})
-                      </option>
-                    ))}
-                </select>
+                  placeholder="Enter voucher code"
+                />
               </div>
             </div>
 

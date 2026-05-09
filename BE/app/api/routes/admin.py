@@ -2,16 +2,14 @@
 
 from base64 import b64encode
 from datetime import datetime
-import csv
-from io import StringIO
 from pathlib import Path
 
-from fastapi import APIRouter, Depends, File, HTTPException, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
 from sqlalchemy import case, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.api.deps import get_current_active_admin
-from app.core.cache import EVENT_LIST_CACHE_NAMESPACE, event_seat_cache_namespace, game_status_cache_namespace, public_api_cache
+from app.core.cache import EVENT_LIST_CACHE_NAMESPACE, event_seat_cache_namespace, public_api_cache
 from app.core.db import get_db_session
 from app.core.search import build_ilike_pattern, sanitize_search_query
 from app.models.enums import OrderStatus, SeatStatus
@@ -19,7 +17,6 @@ from app.models.event import Event
 from app.models.order import Order, OrderItem, Ticket, TicketCancellation
 from app.models.seat import Seat
 from app.models.event import SeatZone
-from app.models.game import GameAuditLog, PrizePool, UserDailyPlay
 from app.models.user import User
 from app.schemas.admin import (
     AdminEventRevenueResponse,
@@ -43,14 +40,6 @@ from app.schemas.event import (
     SeatBulkCreateResponse,
     SeatUpdateRequest,
 )
-from app.schemas.game_admin import (
-    GameConfigResponse,
-    GameConfigUpsertRequest,
-    GameMonitorResponse,
-    PrizePoolCreateRequest,
-    PrizePoolResponse,
-    PrizePoolUpdateRequest,
-)
 from app.services.dashboard_service import get_audience_distribution, get_dashboard_summary, get_revenue_series
 from app.services.event_service import (
     create_event_with_matrix,
@@ -60,15 +49,6 @@ from app.services.event_service import (
     get_event_seat_matrix,
     list_event_zones,
     update_event_zone,
-)
-from app.services.game_service import (
-    create_prize_pool,
-    delete_prize_pool,
-    list_game_configs,
-    list_prize_pools,
-    reset_daily_game_state,
-    update_prize_pool,
-    upsert_game_config,
 )
 import math
 
@@ -903,223 +883,3 @@ async def dashboard_occupancy(
     return result
 
 
-@router.get("/games/{event_key}/configs", response_model=list[GameConfigResponse])
-async def admin_list_game_configs(
-    event_key: str,
-    session: AsyncSession = Depends(get_db_session),
-    _: User = Depends(get_current_active_admin),
-) -> list[GameConfigResponse]:
-    event = await get_event_by_slug_or_id(session, event_key)
-    rows = await list_game_configs(session, event.id)
-    return [
-        GameConfigResponse(
-            id=row.id,
-            event_id=row.event_id,
-            game_type=row.game_type,
-            is_active=row.is_active,
-            daily_reset_cron=row.daily_reset_cron,
-            max_plays_per_user_per_day=row.max_plays_per_user_per_day,
-        )
-        for row in rows
-    ]
-
-
-@router.put("/games/{event_key}/configs", response_model=GameConfigResponse)
-async def admin_upsert_game_config(
-    event_key: str,
-    payload: GameConfigUpsertRequest,
-    session: AsyncSession = Depends(get_db_session),
-    _: User = Depends(get_current_active_admin),
-) -> GameConfigResponse:
-    event = await get_event_by_slug_or_id(session, event_key)
-    row = await upsert_game_config(
-        session=session,
-        event_id=event.id,
-        game_type=payload.game_type,
-        is_active=payload.is_active,
-        daily_reset_cron=payload.daily_reset_cron,
-        max_plays_per_user_per_day=payload.max_plays_per_user_per_day,
-    )
-    return GameConfigResponse(
-        id=row.id,
-        event_id=row.event_id,
-        game_type=row.game_type,
-        is_active=row.is_active,
-        daily_reset_cron=row.daily_reset_cron,
-        max_plays_per_user_per_day=row.max_plays_per_user_per_day,
-    )
-
-
-@router.get("/games/{event_key}/pools", response_model=list[PrizePoolResponse])
-async def admin_list_prize_pools(
-    event_key: str,
-    session: AsyncSession = Depends(get_db_session),
-    _: User = Depends(get_current_active_admin),
-) -> list[PrizePoolResponse]:
-    event = await get_event_by_slug_or_id(session, event_key)
-    rows = await list_prize_pools(session, event.id)
-    return [
-        PrizePoolResponse(
-            id=row.id,
-            event_id=row.event_id,
-            tier_name=row.tier_name,
-            discount_percent=float(row.discount_percent),
-            initial_qty=row.initial_qty,
-            remaining_qty=row.remaining_qty,
-            weight=row.weight,
-        )
-        for row in rows
-    ]
-
-
-@router.post("/games/{event_key}/pools", response_model=PrizePoolResponse, status_code=status.HTTP_201_CREATED)
-async def admin_create_prize_pool(
-    event_key: str,
-    payload: PrizePoolCreateRequest,
-    session: AsyncSession = Depends(get_db_session),
-    _: User = Depends(get_current_active_admin),
-) -> PrizePoolResponse:
-    event = await get_event_by_slug_or_id(session, event_key)
-    row = await create_prize_pool(
-        session=session,
-        event_id=event.id,
-        tier_name=payload.tier_name,
-        discount_percent=payload.discount_percent,
-        initial_qty=payload.initial_qty,
-        weight=payload.weight,
-    )
-    return PrizePoolResponse(
-        id=row.id,
-        event_id=row.event_id,
-        tier_name=row.tier_name,
-        discount_percent=float(row.discount_percent),
-        initial_qty=row.initial_qty,
-        remaining_qty=row.remaining_qty,
-        weight=row.weight,
-    )
-
-
-@router.patch("/games/pools/{pool_id}", response_model=PrizePoolResponse)
-async def admin_update_prize_pool(
-    pool_id: int,
-    payload: PrizePoolUpdateRequest,
-    session: AsyncSession = Depends(get_db_session),
-    _: User = Depends(get_current_active_admin),
-) -> PrizePoolResponse:
-    row = await update_prize_pool(
-        session=session,
-        pool_id=pool_id,
-        tier_name=payload.tier_name,
-        discount_percent=payload.discount_percent,
-        initial_qty=payload.initial_qty,
-        remaining_qty=payload.remaining_qty,
-        weight=payload.weight,
-    )
-    if not row:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prize pool not found")
-    return PrizePoolResponse(
-        id=row.id,
-        event_id=row.event_id,
-        tier_name=row.tier_name,
-        discount_percent=float(row.discount_percent),
-        initial_qty=row.initial_qty,
-        remaining_qty=row.remaining_qty,
-        weight=row.weight,
-    )
-
-
-@router.delete("/games/pools/{pool_id}", response_model=APIMessage)
-async def admin_delete_prize_pool(
-    pool_id: int,
-    session: AsyncSession = Depends(get_db_session),
-    _: User = Depends(get_current_active_admin),
-) -> APIMessage:
-    ok = await delete_prize_pool(session, pool_id=pool_id)
-    if not ok:
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Prize pool not found")
-    return APIMessage(detail="Prize pool deleted")
-
-
-@router.get("/games/monitor", response_model=GameMonitorResponse)
-async def admin_game_monitor(
-    session: AsyncSession = Depends(get_db_session),
-    _: User = Depends(get_current_active_admin),
-) -> GameMonitorResponse:
-    total_plays_today = int((await session.scalar(select(func.coalesce(func.sum(UserDailyPlay.wheel_count + UserDailyPlay.scratch_count), 0)))) or 0)
-    total_vouchers_remaining = int((await session.scalar(select(func.coalesce(func.sum(PrizePool.remaining_qty), 0)))) or 0)
-
-    top_users_rows = (
-        await session.execute(
-            select(
-                UserDailyPlay.user_id,
-                (UserDailyPlay.wheel_count + UserDailyPlay.scratch_count).label("total"),
-            )
-            .order_by((UserDailyPlay.wheel_count + UserDailyPlay.scratch_count).desc())
-            .limit(10)
-        )
-    ).all()
-    pool_rows = (await session.execute(select(PrizePool.tier_name, PrizePool.remaining_qty))).all()
-
-    return GameMonitorResponse(
-        total_plays_today=total_plays_today,
-        total_vouchers_remaining=total_vouchers_remaining,
-        top_users=[{"user_id": row.user_id, "plays": int(row.total), "flag_fraud": int(row.total) > 15} for row in top_users_rows],
-        pool_by_tier=[{"tier_name": row.tier_name, "remaining_qty": int(row.remaining_qty)} for row in pool_rows],
-    )
-
-
-@router.post("/games/reset", response_model=APIMessage)
-async def admin_game_reset(
-    session: AsyncSession = Depends(get_db_session),
-    _: User = Depends(get_current_active_admin),
-) -> APIMessage:
-    await reset_daily_game_state(session)
-    return APIMessage(detail="Game pool reset completed")
-
-
-@router.post("/games/refill/{event_key}", response_model=APIMessage)
-async def admin_game_refill_event(
-    event_key: str,
-    session: AsyncSession = Depends(get_db_session),
-    _: User = Depends(get_current_active_admin),
-) -> APIMessage:
-    event = await get_event_by_slug_or_id(session, event_key)
-    rows = list(await session.scalars(select(PrizePool).where(PrizePool.event_id == event.id).with_for_update()))
-    for row in rows:
-        row.remaining_qty = row.initial_qty
-    await session.commit()
-    await public_api_cache.invalidate_namespace(game_status_cache_namespace(event.id))
-    return APIMessage(detail="Refilled prize pools for event")
-
-
-@router.get("/games/export.csv")
-async def admin_game_export_csv(
-    event_id: int | None = Query(default=None),
-    session: AsyncSession = Depends(get_db_session),
-    _: User = Depends(get_current_active_admin),
-) -> Response:
-    stmt = select(GameAuditLog).order_by(GameAuditLog.created_at.desc()).limit(5000)
-    if event_id:
-        stmt = stmt.where(GameAuditLog.event_id == event_id)
-    rows = list(await session.scalars(stmt))
-
-    output = StringIO()
-    writer = csv.writer(output)
-    writer.writerow(["date", "event_id", "tier_won", "user_id", "ip", "timestamp", "status_code"])
-    for row in rows:
-        writer.writerow(
-            [
-                row.created_at.date().isoformat(),
-                row.event_id,
-                row.result_tier,
-                row.user_id,
-                row.ip,
-                row.created_at.isoformat(),
-                row.status_code,
-            ]
-        )
-    return Response(
-        content=output.getvalue(),
-        media_type="text/csv",
-        headers={"Content-Disposition": 'attachment; filename="game_audit_export.csv"'},
-    )

@@ -53,8 +53,8 @@ export default function AdminHelp() {
   }
 
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 h-[80vh]">
-      <div className="rounded-xl border border-white/10 bg-slate-900/70 overflow-y-auto">
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 min-h-[70vh] lg:h-[80vh]">
+      <div className="rounded-xl border border-white/10 bg-slate-900/70 overflow-y-auto max-h-[280px] lg:max-h-none">
         {threads.map((thread) => (
           <button key={thread.id} onClick={() => setActiveThread(thread)} className={`w-full text-left p-4 border-b border-white/10 ${activeThread?.id === thread.id ? 'bg-white/10' : ''}`}>
             <p className="text-sm font-semibold">{thread.customer_name}</p>
@@ -63,12 +63,12 @@ export default function AdminHelp() {
           </button>
         ))}
       </div>
-      <div className="lg:col-span-2 rounded-xl border border-white/10 bg-slate-900/70 flex flex-col">
+      <div className="lg:col-span-2 rounded-xl border border-white/10 bg-slate-900/70 flex flex-col min-h-[420px]">
         <div className="p-4 border-b border-white/10 text-sm font-semibold">{activeThread ? `Chat with ${activeThread.customer_name}` : 'Select a customer'}</div>
         <div className="flex-1 overflow-y-auto p-4 space-y-3">
           {messages.map((message) => (
             <div key={message.id} className={`flex ${message.sender_id === user?.id ? 'justify-end' : 'justify-start'}`}>
-              <div className={`max-w-[70%] px-3 py-2 rounded-lg ${message.sender_id === user?.id ? 'bg-primary text-white' : 'bg-slate-800 text-slate-100'}`}>
+              <div className={`max-w-[88%] sm:max-w-[70%] px-3 py-2 rounded-lg ${message.sender_id === user?.id ? 'bg-primary text-white' : 'bg-slate-800 text-slate-100'}`}>
                 <p className="text-sm">{message.content}</p>
               </div>
             </div>

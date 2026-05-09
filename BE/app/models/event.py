@@ -10,7 +10,7 @@ from app.models.enums import EventStatus
 
 
 class Event(TimestampMixin, Base):
-    """Represents one sellable show/game/festival."""
+    """Represents one sellable show or festival."""
 
     __tablename__ = "events"
 

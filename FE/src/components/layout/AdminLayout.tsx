@@ -59,7 +59,7 @@ export function AdminLayout({ title, actions }: AdminLayoutProps) {
           </div>
         </header>
 
-        <div className="relative flex-1 overflow-y-auto p-6 bg-background">
+        <div className="relative flex-1 overflow-y-auto p-4 md:p-6 bg-background">
           <Container size="xl" className="relative z-10 animate-in fade-in duration-300">
             <Outlet />
           </Container>

@@ -16,7 +16,6 @@ from app.models.order import Order, OrderItem, Ticket, TicketCancellation
 from app.models.seat import Seat
 from app.schemas.booking import CheckoutItemResponse, CheckoutResponse, LockSeatsResponse, MyTicketResponse
 from app.services.queue_service import ensure_queue_access, mark_queue_completed
-from app.services.game_service import consume_discount_for_checkout
 from app.ws.connection_manager import seat_ws_manager
 
 
@@ -218,11 +217,8 @@ async def checkout_locked_seats(
         zone_map = {zone_id: zone_name for zone_id, zone_name in (zone_rows.all() if zone_rows else [])}
 
         subtotal_amount = sum(Decimal(str(seat.price)) for seat in valid_seats)
-        discount_percent = 0.0
-        if discount_code:
-            discount_percent = await consume_discount_for_checkout(session, user_id=user_id, event_id=event_id, code=discount_code)
-        discount_amount = (subtotal_amount * Decimal(str(discount_percent / 100))).quantize(Decimal("0.01"))
-        total_amount = max(subtotal_amount - discount_amount, Decimal("0.00"))
+        discount_amount = Decimal("0")
+        total_amount = subtotal_amount
 
         order = Order(
             user_id=user_id,

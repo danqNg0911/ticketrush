@@ -16,14 +16,6 @@ import type {
   EventDetail,
   LockSeatResponse,
   OccupancyItem,
-  GamePlayRequest,
-  GamePlayResponse,
-  GameSignedPayload,
-  GameStatusResponse,
-  MyDiscount,
-  AdminGameConfig,
-  AdminPrizePool,
-  AdminGameMonitor,
   PaginatedAdminTicketSalesResponse,
   PaginatedAdminUsersResponse,
   QueueJoinResponse,
@@ -195,22 +187,6 @@ export const bookingApi = {
   async cancelTicket(ticketId: number) {
     const response = await api.delete<ApiMessage>(`/bookings/my-tickets/${ticketId}`)
     return response.data
-  },
-}
-
-export const gameApi = {
-  async play(payload: GamePlayRequest) {
-    const response = await api.post<GamePlayResponse>('/game/play', payload)
-    return response.data
-  },
-  async sign(eventId: number, gameType: 'wheel' | 'scratch') {
-    return withRetry(() => api.get<GameSignedPayload>('/game/sign', { params: { event_id: eventId, game_type: gameType } }))
-  },
-  async status(eventId: number) {
-    return withRetry(() => api.get<GameStatusResponse>('/game/status', { params: { event_id: eventId } }))
-  },
-  async myDiscounts() {
-    return withRetry(() => api.get<MyDiscount[]>('/discounts/me'))
   },
 }
 
@@ -426,45 +402,6 @@ export const adminApi = {
   },
   async deleteVenuePolygon(polygonId: number) {
     const response = await api.delete<ApiMessage>(`/admin/polygons/${polygonId}`)
-    return response.data
-  },
-  async gameConfigs(eventKey: string | number) {
-    return withRetry(() => api.get<AdminGameConfig[]>(`/admin/games/${eventKey}/configs`))
-  },
-  async upsertGameConfig(
-    eventKey: string | number,
-    payload: { game_type: 'wheel' | 'scratch'; is_active: boolean; daily_reset_cron: string; max_plays_per_user_per_day: number },
-  ) {
-    const response = await api.put<AdminGameConfig>(`/admin/games/${eventKey}/configs`, payload)
-    return response.data
-  },
-  async gamePools(eventKey: string | number) {
-    return withRetry(() => api.get<AdminPrizePool[]>(`/admin/games/${eventKey}/pools`))
-  },
-  async createGamePool(eventKey: string | number, payload: { tier_name: string; discount_percent: number; initial_qty: number; weight: number }) {
-    const response = await api.post<AdminPrizePool>(`/admin/games/${eventKey}/pools`, payload)
-    return response.data
-  },
-  async updateGamePool(
-    poolId: number,
-    payload: { tier_name: string; discount_percent: number; initial_qty: number; remaining_qty: number; weight: number },
-  ) {
-    const response = await api.patch<AdminPrizePool>(`/admin/games/pools/${poolId}`, payload)
-    return response.data
-  },
-  async deleteGamePool(poolId: number) {
-    const response = await api.delete<ApiMessage>(`/admin/games/pools/${poolId}`)
-    return response.data
-  },
-  async gameMonitor() {
-    return withRetry(() => api.get<AdminGameMonitor>('/admin/games/monitor'))
-  },
-  async gameReset() {
-    const response = await api.post<ApiMessage>('/admin/games/reset')
-    return response.data
-  },
-  async gameRefill(eventKey: string | number) {
-    const response = await api.post<ApiMessage>(`/admin/games/refill/${eventKey}`)
     return response.data
   },
   async getZones(eventKey: string | number) {
