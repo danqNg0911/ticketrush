@@ -16,7 +16,6 @@ from app.models.order import Order, OrderItem, Ticket, TicketCancellation
 from app.models.seat import Seat
 from app.schemas.booking import CheckoutItemResponse, CheckoutResponse, LockSeatsResponse, MyTicketResponse
 from app.services.queue_service import ensure_queue_access, mark_queue_completed
-from app.services.game_service import consume_discount_for_checkout
 from app.ws.connection_manager import seat_ws_manager
 
 
@@ -221,11 +220,8 @@ async def checkout_locked_seats(
         zone_map = {zone_id: zone_name for zone_id, zone_name in (zone_rows.all() if zone_rows else [])}
 
         subtotal_amount = sum(Decimal(str(seat.price)) for seat in valid_seats)
-        discount_percent = 0.0
-        if discount_code:
-            discount_percent = await consume_discount_for_checkout(session, user_id=user_id, event_id=event_id, code=discount_code)
-        discount_amount = (subtotal_amount * Decimal(str(discount_percent / 100))).quantize(Decimal("0.01"))
-        total_amount = max(subtotal_amount - discount_amount, Decimal("0.00"))
+        discount_amount = Decimal("0")
+        total_amount = subtotal_amount
 
         order = Order(
             user_id=user_id,
@@ -307,9 +303,9 @@ async def fetch_my_tickets(
     limit: int = 20,
     offset: int = 0,
 ) -> list[MyTicketResponse]:
-    """Return customer purchased tickets with event and seat details."""
+    """Return customer purchased tickets and cancellation history."""
 
-    stmt = (
+    active_stmt = (
         select(Ticket, Order, Event, OrderItem, Seat, SeatZone)
         .join(OrderItem, Ticket.order_item_id == OrderItem.id)
         .join(Order, OrderItem.order_id == Order.id)
@@ -320,19 +316,36 @@ async def fetch_my_tickets(
         .order_by(Ticket.issued_at.desc())
     )
 
+    cancelled_stmt = (
+        select(TicketCancellation, Event, Seat, SeatZone)
+        .join(Event, TicketCancellation.event_id == Event.id)
+        .join(Seat, TicketCancellation.seat_id == Seat.id)
+        .join(SeatZone, Seat.zone_id == SeatZone.id)
+        .where(TicketCancellation.user_id == user_id)
+        .order_by(TicketCancellation.canceled_at.desc())
+    )
+
     pattern = build_ilike_pattern(search)
     if pattern:
-        stmt = stmt.where(or_(Ticket.ticket_code.ilike(pattern, escape="\\"), Event.title.ilike(pattern, escape="\\")))
+        active_stmt = active_stmt.where(
+            or_(Ticket.ticket_code.ilike(pattern, escape="\\"), Event.title.ilike(pattern, escape="\\"))
+        )
+        cancelled_stmt = cancelled_stmt.where(
+            or_(TicketCancellation.ticket_code.ilike(pattern, escape="\\"), Event.title.ilike(pattern, escape="\\"))
+        )
 
     if start_from:
-        stmt = stmt.where(Event.start_at >= start_from)
+        active_stmt = active_stmt.where(Event.start_at >= start_from)
+        cancelled_stmt = cancelled_stmt.where(Event.start_at >= start_from)
 
     if end_to:
-        stmt = stmt.where(Event.start_at <= end_to)
+        active_stmt = active_stmt.where(Event.start_at <= end_to)
+        cancelled_stmt = cancelled_stmt.where(Event.start_at <= end_to)
 
-    rows = (await session.execute(stmt.limit(limit).offset(offset))).all()
+    active_rows = (await session.execute(active_stmt.limit(limit).offset(offset))).all()
+    cancelled_rows = (await session.execute(cancelled_stmt.limit(limit).offset(offset))).all()
 
-    return [
+    active_tickets = [
         MyTicketResponse(
             ticket_id=ticket.id,
             ticket_code=ticket.ticket_code,
@@ -341,16 +354,47 @@ async def fetch_my_tickets(
             event_slug=event.slug,
             event_title=event.title,
             event_date=event.start_at,
+            event_cover_image_url=event.cover_image_url,
             venue=event.venue,
             seat_label=seat.seat_label,
             zone_name=zone.name,
             price=Decimal(str(order_item.price)),
             order_id=order.id,
             seat_status=seat.status,
+            ticket_status='active',
             issued_at=ticket.issued_at,
         )
-        for ticket, order, event, order_item, seat, zone in rows
+        for ticket, order, event, order_item, seat, zone in active_rows
     ]
+
+    cancelled_tickets = [
+        MyTicketResponse(
+            cancellation_id=cancel.id,
+            ticket_code=cancel.ticket_code,
+            qr_payload=None,
+            event_id=event.id,
+            event_slug=event.slug,
+            event_title=event.title,
+            event_date=event.start_at,
+            event_cover_image_url=event.cover_image_url,
+            venue=event.venue,
+            seat_label=seat.seat_label,
+            zone_name=zone.name,
+            price=Decimal(str(cancel.canceled_price)),
+            order_id=cancel.order_id,
+            seat_status=seat.status,
+            ticket_status='cancelled',
+            canceled_at=cancel.canceled_at,
+        )
+        for cancel, event, seat, zone in cancelled_rows
+    ]
+
+    combined = active_tickets + cancelled_tickets
+    return sorted(
+        combined,
+        key=lambda item: item.canceled_at or item.issued_at or datetime.fromtimestamp(0),
+        reverse=True,
+    )
 
 
 async def cancel_ticket(session: AsyncSession, user_id: int, ticket_id: int) -> None:

@@ -380,7 +380,6 @@ export default function SeatSelection() {
         </aside>
       </main>
 
-      <Footer />
     </div>
   )
 }

@@ -5,14 +5,10 @@ import { Footer } from '@/components/layout/Footer'
 import { Navbar } from '@/components/layout/Navbar'
 import { Button } from '@/components/ui/Button'
 import { GlobalLoader } from '@/components/ui/GlobalLoader'
-import { LuckyWheel } from '@/components/game/LuckyWheel'
-import { ScratchCard } from '@/components/game/ScratchCard'
 import { eventsApi } from '@/features/events/api/eventsApi'
 import { useEventDetail } from '@/features/events/hooks/useEvents'
 import { useAuth } from '@/context/AuthContext'
-import { useGame } from '@/context/GameContext'
-import { extractApiErrorMessage, gameApi } from '@/lib/api'
-import type { EventReview, GamePlayResponse } from '@/types'
+import type { EventReview } from '@/types'
 import { Calendar, Clock, MapPin, Star, Users } from 'lucide-react'
 import { Heart } from 'lucide-react'
 import { isFavourite, toggleFavourite } from '@/lib/favourites'
@@ -36,8 +32,7 @@ export default function EventDetail() {
   const navigate = useNavigate()
   const { isAuthenticated, user } = useAuth()
   const { event, isLoading, error } = useEventDetail(eventKey)
-  const { status: gameStatus, playsLeft, error: gameError, refreshStatus } = useGame()
-  const [activeTab, setActiveTab] = useState<'info' | 'reviews' | 'game'>('info')
+  const [activeTab, setActiveTab] = useState<'info' | 'reviews'>('info')
   const [reviews, setReviews] = useState<EventReview[]>([])
   const [reviewOffset, setReviewOffset] = useState(0)
   const [reviewLoading, setReviewLoading] = useState(false)
@@ -47,12 +42,6 @@ export default function EventDetail() {
   const [content, setContent] = useState('')
   const [imageUrl, setImageUrl] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
-  const [gameNotice, setGameNotice] = useState<string>('')
-  const [showConfetti, setShowConfetti] = useState(false)
-  const [gameModal, setGameModal] = useState<{
-    open: boolean
-    type: 'wheel' | 'scratch' | null
-  }>({ open: false, type: null })
   const [fav, setFav] = useState(false)
 
   async function fetchReviews(nextOffset = 0, append = false) {
@@ -79,23 +68,6 @@ export default function EventDetail() {
     if (!event) return
     setFav(isFavourite(user?.id, event.slug || event.id))
   }, [event?.id, event?.slug, user?.id])
-
-  useEffect(() => {
-    if (!event) return
-    void refreshStatus(event.id)
-    const timer = window.setInterval(() => {
-      void refreshStatus(event.id)
-    }, 20000)
-    return () => window.clearInterval(timer)
-  }, [event?.id, refreshStatus])
-
-  useEffect(() => {
-    if (gameModal.open) {
-      document.body.style.overflow = 'hidden'
-    } else {
-      document.body.style.overflow = ''
-    }
-  }, [gameModal.open])
 
   const averageRating = useMemo(() => {
     if (reviews.length === 0) return 0
@@ -141,46 +113,6 @@ export default function EventDetail() {
       setReviewError(e instanceof Error ? e.message : 'Failed to submit review')
     } finally {
       setSubmitting(false)
-    }
-  }
-
-  const playGame = async (gameType: 'wheel' | 'scratch'): Promise<GamePlayResponse | null> => {
-    if (!event) return null
-    if (!isAuthenticated) {
-      navigate('/login')
-      return null
-    }
-    setGameNotice('')
-    try {
-      const sign = await gameApi.sign(event.id, gameType)
-      const result = await gameApi.play({
-        event_id: event.id,
-        game_type: gameType,
-        nonce: sign.nonce,
-        timestamp: sign.timestamp,
-        signed_payload: sign.signed_payload,
-      })
-      const won = Boolean(result.discount_code)
-      setGameNotice(result.discount_code ? `Bạn trúng ${result.tier_name} (${result.discount_percent}%)` : '')
-      if (won) {
-        setShowConfetti(true)
-        const ctx = new AudioContext()
-        const osc = ctx.createOscillator()
-        const gain = ctx.createGain()
-        osc.connect(gain)
-        gain.connect(ctx.destination)
-        osc.type = 'triangle'
-        osc.frequency.value = 660
-        gain.gain.value = 0.05
-        osc.start()
-        osc.stop(ctx.currentTime + 0.15)
-        window.setTimeout(() => setShowConfetti(false), 1500)
-      }
-      await refreshStatus(event.id)
-      return result
-    } catch (e) {
-      setGameNotice(extractApiErrorMessage(e, 'Không thể chơi game lúc này'))
-      return null
     }
   }
 
@@ -255,13 +187,6 @@ export default function EventDetail() {
             >
               Đánh giá
             </button>
-            <button
-              type="button"
-              className={`px-4 py-2 rounded-lg text-sm ${activeTab === 'game' ? 'bg-primary text-white' : 'text-slate-300 hover:bg-white/10'}`}
-              onClick={() => setActiveTab('game')}
-            >
-              Giảm giá
-            </button>
           </div>
 
           {activeTab === 'info' ? (
@@ -291,7 +216,7 @@ export default function EventDetail() {
                 </div>
               </div>
             </>
-          ) : activeTab === 'reviews' ? (
+          ) : (
             <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6 space-y-4">
               <div className="flex items-center justify-between">
                 <div>
@@ -355,32 +280,6 @@ export default function EventDetail() {
                 </Button>
               </div>
             </div>
-          ) : (
-            <div className="rounded-xl border border-white/10 bg-slate-900/70 p-6 space-y-3 relative overflow-hidden">
-              <h3 className="text-lg font-bold">Phiếu giảm giá may mắn</h3>
-              <p className="text-xs text-slate-400">
-                Reset: {gameStatus ? new Date(gameStatus.next_reset_time).toLocaleString('vi-VN') : '--'}
-              </p>
-              {gameStatus && (
-                <div className="text-xs text-slate-300 space-y-1">
-                  <p className="text-m text-white font-bold">Tỷ lệ phần thưởng</p>
-                  {gameStatus.remaining_prizes.map((item) => (
-                    <p key={item.tier_name}>
-                      {item.tier_name}: con {item.remaining_qty}
-                    </p>
-                  ))}
-                </div>
-              )}
-              <LuckyWheel status={gameStatus} playsLeft={playsLeft.wheel} onPlay={() => setGameModal({ open: true, type: 'wheel' })} />
-              <ScratchCard playsLeft={playsLeft.scratch} onPlay={() => setGameModal({ open: true, type: 'scratch' })} />
-              {gameError && <p className="text-xs text-amber-300">{gameError}</p>}
-              {gameNotice && <p className="text-xs text-emerald-300">{gameNotice}</p>}
-              {showConfetti && (
-                <div className="pointer-events-none absolute inset-0 flex items-start justify-center text-2xl animate-pulse">
-                  <span>🎉🎉🎉</span>
-                </div>
-              )}
-            </div>
           )}
         </section>
 
@@ -424,51 +323,6 @@ export default function EventDetail() {
           </Link>
         </aside>
       </main>
-
-      {gameModal.open && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center">
-          
-          {/* Overlay nền */}
-          <div
-            className="absolute inset-0 bg-black/70 backdrop-blur-sm"
-            onClick={() => setGameModal({ open: false, type: null })}
-          />
-
-          {/* Nội dung popup */}
-          <div className="relative z-10 w-[90%] max-w-md rounded-xl bg-slate-900 border border-white/10 p-6 shadow-2xl">
-            
-            <button
-              className="absolute top-3 right-3 text-slate-400 hover:text-white"
-              onClick={() => setGameModal({ open: false, type: null })}
-            >
-              ✕
-            </button>
-
-            <h3 className="text-lg font-bold mb-4 text-center">
-              {gameModal.type === 'wheel' ? 'Vòng quay may mắn' : 'Cào vé'}
-            </h3>
-
-            {gameModal.type === 'wheel' ? (
-              <LuckyWheel
-                status={gameStatus}
-                playsLeft={playsLeft.wheel}
-                onPlay={async () => await playGame('wheel')}
-              />
-            ) : (
-              <ScratchCard
-                playsLeft={playsLeft.scratch}
-                onPlay={() => {return playGame('scratch')}}
-              />
-            )}
-
-            {gameNotice && (
-              <p className="text-sm text-emerald-300 mt-4 text-center">
-                {gameNotice}
-              </p>
-            )}
-          </div>
-        </div>
-      )}
 
       <Footer />
     </div>

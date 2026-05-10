@@ -1,9 +1,9 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { CustomerSidebar } from '@/components/layout/CustomerSidebar'
 import { Navbar } from '@/components/layout/Navbar'
 import { useAuth } from '@/context/AuthContext'
-import { CreditCard, Plus, Trash2, Shield } from 'lucide-react'
+import { CreditCard, Menu, Plus, Shield, Trash2, X } from 'lucide-react'
 
 interface PaymentMethod {
   id: number
@@ -43,8 +43,17 @@ export default function Payments() {
   const { user, logout } = useAuth()
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>(MOCK_PAYMENT_METHODS)
   const [showAddModal, setShowAddModal] = useState(false)
+  const [drawerOpen, setDrawerOpen] = useState(false)
+
+  useEffect(() => {
+    document.body.style.overflow = drawerOpen ? 'hidden' : ''
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [drawerOpen])
 
   const onSidebarNavigate = (tab: string) => {
+    setDrawerOpen(false)
     if (tab === 'tickets') return navigate('/tickets')
     if (tab === 'profile') return navigate('/profile')
     if (tab === 'favourites') return navigate('/favourites') 
@@ -90,16 +99,33 @@ export default function Payments() {
     <>
       <Navbar />
       <div className="pt-[80px] min-h-screen bg-background flex">
-        <CustomerSidebar
-          activeTab="payments"
-          userName={user?.full_name ?? 'Customer'}
-          membershipLevel="Stellar Member"
-          onNavigate={onSidebarNavigate}
-        />
+        <div className="hidden lg:block">
+          <CustomerSidebar
+            activeTab="payments"
+            userName={user?.full_name ?? 'Customer'}
+            membershipLevel="Stellar Member"
+            onNavigate={onSidebarNavigate}
+          />
+        </div>
+        {drawerOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <button className="absolute inset-0 bg-black/60" onClick={() => setDrawerOpen(false)} />
+            <CustomerSidebar
+              activeTab="payments"
+              userName={user?.full_name ?? 'Customer'}
+              membershipLevel="Stellar Member"
+              onNavigate={onSidebarNavigate}
+              className="relative"
+            />
+          </div>
+        )}
 
-        <main className="flex-1 p-8 lg:p-12 max-w-5xl mx-auto">
+        <main className="flex-1 p-4 sm:p-6 lg:p-12 max-w-5xl mx-auto">
+          <button className="lg:hidden mb-4 p-2 rounded bg-surface-container" onClick={() => setDrawerOpen((v) => !v)}>
+            {drawerOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
           <header className="mb-10">
-            <h1 className="text-5xl font-black text-on-background font-headline tracking-tighter">
+            <h1 className="text-3xl sm:text-5xl font-black text-on-background font-headline tracking-tighter">
               Payment Methods
             </h1>
             <p className="text-on-surface-variant mt-2 max-w-lg">
@@ -173,7 +199,7 @@ export default function Payments() {
                   </div>
 
                   {/* Actions */}
-                  <div className="flex items-center gap-3">
+                  <div className="flex flex-wrap items-center gap-3">
                     {method.isDefault && (
                       <span className="px-3 py-1 bg-primary/20 text-primary text-xs font-bold uppercase tracking-widest rounded-full flex items-center gap-1">
                         <Shield className="w-3 h-3" />

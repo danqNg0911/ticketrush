@@ -107,7 +107,6 @@ class TTLCacheStore:
 public_api_cache = TTLCacheStore()
 
 EVENT_LIST_CACHE_NAMESPACE = "events:list"
-GAME_STATUS_CACHE_NAMESPACE = "game:status"
 
 
 def event_seat_cache_namespace(event_id: int) -> str:
@@ -115,8 +114,3 @@ def event_seat_cache_namespace(event_id: int) -> str:
 
     return f"events:seats:{event_id}"
 
-
-def game_status_cache_namespace(event_id: int) -> str:
-    """Namespace for one event game status cache."""
-
-    return f"{GAME_STATUS_CACHE_NAMESPACE}:{event_id}"

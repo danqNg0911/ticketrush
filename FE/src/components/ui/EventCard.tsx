@@ -60,7 +60,7 @@ export const EventCard = forwardRef<HTMLAnchorElement, EventCardProps>(
         to={href || '#'}
         ref={ref}
         className={cn(
-          'glass-panel rounded-xl overflow-hidden group hover:translate-y-[-4px] transition-all duration-300 block',
+          'customer-bg-surface border-1 border-[var(--customer-bg-opp)] rounded-xl overflow-hidden group hover:translate-y-[-4px] transition-all duration-300 block',
           className
         )}
         {...props}
@@ -77,16 +77,16 @@ export const EventCard = forwardRef<HTMLAnchorElement, EventCardProps>(
           </div>
         </div>
         <div className="p-5">
-          <h4 className="font-headline font-bold text-lg mb-1 leading-tight group-hover:text-primary transition-colors">
+          <h4 className="font-headline customer-text-body font-bold text-lg mb-1 leading-tight group-hover:text-primary transition-colors">
             {title}
           </h4>
-          <p className="text-xs text-slate-400 mb-4 flex items-center gap-1">
-            <MapPin className="w-3 h-3" />
+          <p className="text-xs text-gray-500 mb-4 flex items-center gap-1">
+            <MapPin className="w-3 h-3 text-red-500" />
             {venue}
           </p>
-          <div className="flex items-center justify-between pt-4 border-t border-white/5">
+          <div className="flex items-center justify-between pt-4 border-t border-gray-500">
             <span className="text-secondary font-headline font-bold">{price}</span>
-            <button className="bg-surface-container-highest hover:bg-primary hover:text-on-primary-container p-2 rounded-lg transition-colors">
+            <button className="bg-primary hover:bg-primary hover:opacity-50 text-white font-bold p-2 rounded-xl transition-colors">
               <span className="material-symbols-outlined text-sm">Chi tiết</span>
             </button>
           </div>

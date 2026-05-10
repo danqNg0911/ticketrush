@@ -8,9 +8,11 @@ import { TicketCard } from '@/components/ui/TicketCard'
 import { useAuth } from '@/context/AuthContext'
 import { useCancelTicket, useMyTickets } from '@/features/booking/hooks/useBooking'
 import type { TicketItem } from '@/types'
-import { Globe, Mail, MonitorPlay, Ticket } from 'lucide-react'
+import { Menu, Ticket, X } from 'lucide-react'
 
 type TicketTab = 'upcoming' | 'past' | 'cancelled'
+const FALLBACK_TICKET_IMAGE =
+  'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1200&q=80'
 
 function formatDate(value: string) {
   return new Date(value).toLocaleDateString('en-US', {
@@ -26,11 +28,18 @@ function toCardStatus(ticket: TicketItem): 'confirmed' | 'pending' | 'cancelled'
   return 'cancelled'
 }
 
+const tabLabels: Record<'upcoming' | 'past' | 'cancelled', string> = {
+  upcoming: 'Sắp tới',
+  past: 'Hết hạn',
+  cancelled: 'Đã hủy',
+};
+
 const CustomerTicket: React.FC = () => {
   const navigate = useNavigate()
   const { user, logout } = useAuth()
   const [activeTab, setActiveTab] = useState<TicketTab>('upcoming')
   const [pendingCancelTicketId, setPendingCancelTicketId] = useState<number | null>(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
 
   const { tickets, isLoading, error, refetch } = useMyTickets()
   const { cancelTicket, error: cancelError } = useCancelTicket()
@@ -38,6 +47,13 @@ const CustomerTicket: React.FC = () => {
   useEffect(() => {
     void refetch()
   }, [refetch])
+
+  useEffect(() => {
+    document.body.style.overflow = drawerOpen ? 'hidden' : ''
+    return () => {
+      document.body.style.overflow = ''
+    }
+  }, [drawerOpen])
 
   // if (isLoading) {
   //   return <GlobalLoader />
@@ -50,13 +66,14 @@ const CustomerTicket: React.FC = () => {
       const eventTime = new Date(ticket.event_date).getTime()
       const isPast = eventTime < now
 
-      if (activeTab === 'upcoming') return !isPast && ticket.seat_status === 'sold'
-      if (activeTab === 'past') return isPast && ticket.seat_status === 'sold'
-      return ticket.seat_status !== 'sold'
+      if (activeTab === 'upcoming') return ticket.ticket_status === 'active' && !isPast && ticket.seat_status === 'sold'
+      if (activeTab === 'past') return ticket.ticket_status === 'active' && isPast && ticket.seat_status === 'sold'
+      return ticket.ticket_status === 'cancelled'
     })
   }, [tickets, activeTab])
 
   const onSidebarNavigate = (tab: string) => {
+    setDrawerOpen(false)
     if (tab === 'tickets') return navigate('/tickets')
     if (tab === 'profile') return navigate('/profile')
     if (tab === 'favourites') return navigate('/favourites') 
@@ -74,11 +91,13 @@ const CustomerTicket: React.FC = () => {
   }
 
   const onDownload = (ticket: TicketItem) => {
+    if (!ticket.qr_payload) return
     navigator.clipboard.writeText(ticket.qr_payload).catch(() => undefined)
     window.alert(`Copied QR payload for ${ticket.ticket_code}`)
   }
 
   const onCancelTicket = async (ticket: TicketItem) => {
+    if (!ticket.ticket_id) return
     const confirmed = window.confirm(`Cancel ticket ${ticket.ticket_code}?`)
     if (!confirmed) return
 
@@ -94,31 +113,47 @@ const CustomerTicket: React.FC = () => {
   return (
     <>
       <Navbar />
-      <div className="pt-[80px] min-h-screen bg-[#0B0F19] flex">
-        <CustomerSidebar
-          activeTab="tickets"
-          userName={user?.full_name ?? 'Customer'}
-          membershipLevel="Stellar Member"
-          onNavigate={onSidebarNavigate}
-        />
+      <div className="min-h-screen customer-bg-page flex">
+        <div className="hidden lg:block">
+          <CustomerSidebar
+            activeTab="tickets"
+            userName={user?.full_name ?? 'Customer'}
+            membershipLevel="Stellar Member"
+            onNavigate={onSidebarNavigate}
+          />
+        </div>
+        {drawerOpen && (
+          <div className="fixed inset-0 z-50 lg:hidden">
+            <button className="absolute inset-0 bg-black/60" onClick={() => setDrawerOpen(false)} />
+            <CustomerSidebar
+              activeTab="tickets"
+              userName={user?.full_name ?? 'Customer'}
+              membershipLevel="Stellar Member"
+              onNavigate={onSidebarNavigate}
+              className="relative"
+            />
+          </div>
+        )}
 
-        <main className="flex-1 p-8 lg:p-12">
+        <main className="flex-1 p-4 sm:p-6 lg:p-12 max-w-5xl mx-auto">
+          <button className="lg:hidden mb-4 p-2 rounded bg-surface-container" onClick={() => setDrawerOpen((v) => !v)}>
+            {drawerOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
+          </button>
           <header className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-10">
             <div>
-              <h1 className="text-5xl font-black text-white font-headline tracking-tighter">Vé của tôi</h1>
-              <p className="text-slate-400 mt-2 max-w-lg">Chúc bạn có trải nghiệm tuyệt vời vơi TicketRush</p>
+              <h1 className="text-3xl sm:text-5xl font-black text-on-background font-headline tracking-tighter">Vé của bạn</h1>
+              <p className="text-on-surface-variant mt-2 max-w-lg">Xem tất cả các vé sự kiện của bạn.</p>
             </div>
-
-            <div className="flex p-1 bg-slate-900 border border-white/5 rounded-full backdrop-blur-sm">
+            <div className="flex flex-wrap p-1 main-bg-surface border border-[var(--customer-bg-opp)] rounded-2xl sm:rounded-full backdrop-blur-sm">
               {(['upcoming', 'past', 'cancelled'] as const).map((tab) => (
                 <button
                   key={tab}
                   onClick={() => setActiveTab(tab)}
-                  className={`px-6 py-2 rounded-full font-bold text-sm transition-all capitalize ${
-                    activeTab === tab ? 'bg-gradient-to-r from-red-500 to-pink-500 text-white shadow-lg shadow-red-500/20' : 'text-slate-400 hover:text-white'
+                  className={`px-4 sm:px-6 py-2 rounded-full font-bold text-sm transition-all capitalize ${
+                    activeTab === tab ? 'bg-[var(--customer-bg-opt)] text-white shadow-lg shadow-[var(--customer-bg-opt)]' : 'text-slate-400 hover:text-[var(--customer-bg-opt)]'
                   }`}
                 >
-                  {tab}
+                  {tabLabels[tab]}
                 </button>
               ))}
             </div>
@@ -138,22 +173,22 @@ const CustomerTicket: React.FC = () => {
           ) : (
             <div className="grid grid-cols-1 xl:grid-cols-2 gap-8">
               {filteredTickets.map((ticket) => (
-                <div key={ticket.ticket_id} className="space-y-3">
+                <div key={ticket.ticket_id ?? `cancel-${ticket.cancellation_id}`.toString()} className="space-y-3">
                   <TicketCard
                     eventTitle={ticket.event_title}
                     ticketNumber={ticket.ticket_code}
                     date={formatDate(ticket.event_date)}
                     location={`${ticket.venue} | ${ticket.seat_label}`}
-                    imageUrl={ticket.event_cover_image_url}
-                    status={toCardStatus(ticket)}
+                    imageUrl={ticket.event_cover_image_url || FALLBACK_TICKET_IMAGE}
+                    status={ticket.ticket_status === 'cancelled' ? 'cancelled' : toCardStatus(ticket)}
                     onViewDetails={() => onViewDetails(ticket)}
-                    onDownload={() => onDownload(ticket)}
+                    onDownload={() => ticket.qr_payload ? onDownload(ticket) : undefined}
                   />
-                  {activeTab === 'upcoming' && ticket.seat_status === 'sold' && (
+                  {activeTab === 'upcoming' && ticket.ticket_status === 'active' && ticket.seat_status === 'sold' && (
                     <div className="flex justify-end">
                       <button
-                        className="text-xs px-3 py-2 rounded-lg border border-red-400/30 text-red-300 hover:bg-red-500/10 disabled:opacity-60"
-                        disabled={pendingCancelTicketId === ticket.ticket_id}
+                        className="text-xs px-3 py-2 rounded-lg border border-red-500 text-red-500 hover:bg-red-500/10 disabled:opacity-60"
+                        disabled={!ticket.ticket_id || pendingCancelTicketId === ticket.ticket_id}
                         onClick={() => void onCancelTicket(ticket)}
                       >
                         {pendingCancelTicketId === ticket.ticket_id ? 'Cancelling...' : 'Cancel Ticket'}
@@ -175,52 +210,6 @@ const CustomerTicket: React.FC = () => {
         </main>
       </div>
 
-      <footer className="bg-slate-950 border-t border-white/5 py-12 mt-12">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-8 px-6 max-w-screen-2xl mx-auto">
-          <div className="col-span-2 md:col-span-1">
-            <div className="text-xl font-black text-red-500 font-headline uppercase mb-4">TicketRush</div>
-            <p className="text-slate-500 text-xs">Elevating your experience beyond the terrestrial.</p>
-          </div>
-          <div className="space-y-3">
-            <h4 className="text-white font-bold text-xs uppercase tracking-widest mb-2">Navigation</h4>
-            <a href="#" className="block text-slate-500 hover:text-red-400 text-xs font-bold uppercase transition-colors">
-              Help Center
-            </a>
-            <a href="#" className="block text-slate-500 hover:text-red-400 text-xs font-bold uppercase transition-colors">
-              Sell Tickets
-            </a>
-            <a href="#" className="block text-slate-500 hover:text-red-400 text-xs font-bold uppercase transition-colors">
-              Artist Portal
-            </a>
-          </div>
-          <div className="space-y-3">
-            <h4 className="text-white font-bold text-xs uppercase tracking-widest mb-2">Legal</h4>
-            <a href="#" className="block text-slate-500 hover:text-red-400 text-xs font-bold uppercase transition-colors">
-              Terms of Service
-            </a>
-            <a href="#" className="block text-slate-500 hover:text-red-400 text-xs font-bold uppercase transition-colors">
-              Privacy Policy
-            </a>
-            <a href="#" className="block text-slate-500 hover:text-red-400 text-xs font-bold uppercase transition-colors">
-              Affiliates
-            </a>
-          </div>
-          <div className="space-y-4">
-            <h4 className="text-white font-bold text-xs uppercase tracking-widest">Connect</h4>
-            <div className="flex gap-3">
-              <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center hover:bg-red-500 transition-colors cursor-pointer">
-                <Globe className="w-4 h-4 text-slate-400" />
-              </div>
-              <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center hover:bg-red-500 transition-colors cursor-pointer">
-                <Mail className="w-4 h-4 text-slate-400" />
-              </div>
-              <div className="w-8 h-8 rounded-full bg-white/5 flex items-center justify-center hover:bg-red-500 transition-colors cursor-pointer">
-                <MonitorPlay className="w-4 h-4 text-slate-400" />
-              </div>
-            </div>
-          </div>
-        </div>
-      </footer>
     </>
   )
 }

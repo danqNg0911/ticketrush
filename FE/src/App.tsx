@@ -3,7 +3,6 @@ import './App.css'
 import { CustomerLayout } from './components/layout/CustomerLayout'
 import { AdminLayout } from './components/layout/AdminLayout'
 import { AuthProvider, useAuth } from './context/AuthContext'
-import { GameProvider } from './context/GameContext'
 import { ThemeProvider } from './context/ThemeContext'
 import Home from './pages/customer/Home'
 import EventDetail from './pages/customer/EventDetail'
@@ -29,7 +28,6 @@ import AdminTickets from './pages/admin/Tickets'
 import AdminAnalytics from './pages/admin/Analytics'
 import AdminUsers from './pages/admin/Users'
 import AdminSettings from './pages/admin/Settings'
-import AdminGames from './pages/admin/Games'
 import AdminHelp from './pages/admin/Help'
 import { LoadingProvider } from '@/context/LoadingContext'
 
@@ -99,7 +97,6 @@ function AppRoutes() {
           <Route path="tickets" element={<AdminTickets />} />
           <Route path="analytics" element={<AdminAnalytics />} />
           <Route path="users" element={<AdminUsers />} />
-          <Route path="games" element={<AdminGames />} />
           <Route path="help" element={<AdminHelp />} />
           <Route path="settings" element={<AdminSettings />} />
         </Route>
@@ -113,9 +110,7 @@ function App() {
     <ThemeProvider>
       <LoadingProvider>
         <AuthProvider>
-          <GameProvider>
-            <AppRoutes />
-          </GameProvider>
+          <AppRoutes />
         </AuthProvider>
       </LoadingProvider>
     </ThemeProvider>
