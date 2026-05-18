@@ -633,6 +633,10 @@ export const siteSettingsApi = {
 }
 
 export const helpApi = {
+  async getMyThread() {
+    const response = await api.get<HelpThread | null>('/help/threads/me', { timeout: 6000 })
+    return response.data
+  },
   async createOrGetMyThread() {
     return withRetry(() => api.post<HelpThread>('/help/threads/me'))
   },

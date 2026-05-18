@@ -148,6 +148,33 @@ async def create_or_get_my_thread(
     return _thread_to_response(thread)
 
 
+@router.get("/threads/me", response_model=HelpThreadResponse | None)
+async def get_my_thread(
+    session: AsyncSession = Depends(get_db_session),
+    current_user: User = Depends(get_current_user),
+) -> HelpThreadResponse | None:
+    """Đọc hội thoại hỗ trợ mới nhất của khách mà không tự tạo dữ liệu rỗng.
+
+    Đầu vào:
+    - `session`: phiên database được FastAPI cấp cho request hiện tại.
+    - `current_user`: tài khoản đang đăng nhập lấy từ JWT.
+
+    Đầu ra:
+    - `HelpThreadResponse` nếu khách đã có hội thoại hỗ trợ.
+    - `None` nếu khách chưa từng mở hoặc gửi tin nhắn hỗ trợ.
+
+    Cách hoạt động:
+    - Route này dành cho Navbar polling thông báo, nên chỉ đọc dữ liệu hiện có.
+    - Không tạo thread rỗng để tránh request nền ghi database và tránh spam khi backend vừa restart.
+    """
+
+    if current_user.role != UserRole.CUSTOMER:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Chỉ khách hàng mới được đọc hội thoại hỗ trợ")
+
+    thread = await _get_latest_customer_thread(session, current_user.id, with_customer=True)
+    return _thread_to_response(thread) if thread else None
+
+
 @router.get("/threads/me/messages", response_model=list[HelpMessageResponse])
 async def get_my_messages(
     limit: int = 100,
@@ -276,7 +303,7 @@ async def admin_mark_threads_seen(
     session: AsyncSession = Depends(get_db_session),
     _: User = Depends(get_current_active_admin),
 ) -> APIMessage:
-    """Mark all unread customer support notifications as seen for admin."""
+    """Đánh dấu toàn bộ thông báo hỗ trợ chưa đọc phía admin là đã xem."""
 
     threads = list(
         await session.scalars(select(HelpThread).where(HelpThread.unread_admin > 0))
