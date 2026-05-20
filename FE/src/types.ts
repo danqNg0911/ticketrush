@@ -384,6 +384,12 @@ export interface OccupancyItem {
   occupancy_rate: number
 }
 
+export interface DashboardRealtimePayload {
+  summary: DashboardSummary
+  revenue: RevenuePoint[]
+  occupancy: OccupancyItem[]
+}
+
 export interface AdminEventUpdatePayload {
   title?: string
   description?: string

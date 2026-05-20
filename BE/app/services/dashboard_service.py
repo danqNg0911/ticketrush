@@ -3,16 +3,20 @@
 from collections import Counter
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import cast, func, select
+from sqlalchemy import case, cast, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.sqltypes import Date
 
-from app.models.enums import EventStatus, OrderStatus, QueueStatus
-from app.models.event import Show
+from app.core.db import AsyncSessionLocal
+from app.models.enums import EventStatus, OrderStatus, QueueStatus, SeatStatus
+from app.models.event import Event, Show
 from app.models.order import Order, OrderItem
 from app.models.queue import QueueEntry
+from app.models.seat import Seat
 from app.models.user import User
-from app.schemas.admin import AudienceDistributionResponse, DashboardSummaryResponse, RevenuePoint
+from app.schemas.admin import AudienceDistributionResponse, DashboardStreamResponse, DashboardSummaryResponse, RevenuePoint
+from app.schemas.event import EventOccupancyResponse
+from app.ws.connection_manager import admin_ws_manager
 
 
 async def get_dashboard_summary(session: AsyncSession) -> DashboardSummaryResponse:
@@ -106,6 +110,70 @@ async def get_revenue_series(session: AsyncSession, days: int = 14) -> list[Reve
         cursor += timedelta(days=1)
 
     return points
+
+
+async def get_dashboard_occupancy(session: AsyncSession) -> list[EventOccupancyResponse]:
+    """Trả snapshot lấp đầy ghế của từng buổi diễn cho dashboard admin."""
+
+    rows = (
+        await session.execute(
+            select(
+                Event.id.label("event_id"),
+                Event.title.label("event_title"),
+                Show.id.label("show_id"),
+                Show.title.label("show_title"),
+                func.count(Seat.id).label("total_seats"),
+                func.sum(case((Seat.status == SeatStatus.SOLD, 1), else_=0)).label("sold_seats"),
+                func.sum(case((Seat.status == SeatStatus.LOCKED, 1), else_=0)).label("locked_seats"),
+            )
+            .join(Show, Show.event_id == Event.id)
+            .outerjoin(Seat, Seat.show_id == Show.id)
+            .where(Event.is_deleted.is_(False), Show.is_deleted.is_(False))
+            .group_by(Event.id, Event.title, Show.id, Show.title)
+            .order_by(Show.start_at.asc())
+        )
+    ).all()
+
+    result: list[EventOccupancyResponse] = []
+    for row in rows:
+        total = int(row.total_seats or 0)
+        sold = int(row.sold_seats or 0)
+        locked = int(row.locked_seats or 0)
+        result.append(
+            EventOccupancyResponse(
+                event_id=row.event_id,
+                event_title=row.event_title,
+                show_id=row.show_id,
+                show_title=row.show_title,
+                total_seats=total,
+                sold_seats=sold,
+                locked_seats=locked,
+                occupancy_rate=round((sold / total) * 100, 2) if total else 0,
+            )
+        )
+
+    return result
+
+
+async def get_dashboard_stream(session: AsyncSession) -> DashboardStreamResponse:
+    """Build payload realtime đầy đủ cho dashboard admin."""
+
+    return DashboardStreamResponse(
+        summary=await get_dashboard_summary(session),
+        revenue=await get_revenue_series(session, days=14),
+        occupancy=await get_dashboard_occupancy(session),
+    )
+
+
+async def broadcast_dashboard_update() -> None:
+    """Đọc snapshot dashboard mới nhất sau commit rồi push tới admin đang online."""
+
+    if not admin_ws_manager.has_clients():
+        return
+
+    async with AsyncSessionLocal() as session:
+        payload = await get_dashboard_stream(session)
+    await admin_ws_manager.broadcast(payload.model_dump())
 
 
 async def get_audience_distribution(session: AsyncSession) -> AudienceDistributionResponse:

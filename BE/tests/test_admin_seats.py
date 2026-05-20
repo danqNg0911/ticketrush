@@ -6,7 +6,13 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.main import app
+from app.models.enums import EventStatus
 from app.models.seat import Seat
+
+
+async def mark_show_draft(db_session, sample_show) -> None:
+    sample_show.status = EventStatus.DRAFT
+    await db_session.commit()
 
 
 @pytest.mark.asyncio
@@ -21,6 +27,7 @@ async def test_create_single_seat(db_session, admin_user, sample_event, sample_s
 
     app.dependency_overrides[get_db_session] = override_get_db
     app.dependency_overrides[get_current_active_admin] = override_get_admin
+    await mark_show_draft(db_session, sample_show)
 
     try:
         # Lấy khu vực ghế trực tiếp từ cơ sở dữ liệu để tránh tải lười ngoài phiên bất đồng bộ.
@@ -71,6 +78,7 @@ async def test_create_bulk_straight(db_session, admin_user, sample_event, sample
 
     app.dependency_overrides[get_db_session] = override_get_db
     app.dependency_overrides[get_current_active_admin] = override_get_admin
+    await mark_show_draft(db_session, sample_show)
 
     try:
         from sqlalchemy import select
@@ -119,6 +127,7 @@ async def test_create_bulk_arc(db_session, admin_user, sample_event, sample_show
 
     app.dependency_overrides[get_db_session] = override_get_db
     app.dependency_overrides[get_current_active_admin] = override_get_admin
+    await mark_show_draft(db_session, sample_show)
 
     try:
         from sqlalchemy import select
@@ -168,6 +177,7 @@ async def test_update_event_seat_admin_lock(db_session, admin_user, sample_event
 
     app.dependency_overrides[get_db_session] = override_get_db
     app.dependency_overrides[get_current_active_admin] = override_get_admin
+    await mark_show_draft(db_session, sample_show)
 
     try:
         seat = await db_session.scalar(select(Seat).where(Seat.show_id == sample_show.id).limit(1))

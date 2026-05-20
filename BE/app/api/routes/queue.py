@@ -6,7 +6,7 @@ Ghi chú cho người đọc:
 """
 
 # `APIRouter`, `Depends` là class/hàm của FastAPI dùng để khai báo route và dependency.
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 # `AsyncSession` là phiên làm việc bất đồng bộ với database của SQLAlchemy.
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,6 +15,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_current_user
 from app.core.db import get_db_session
 from app.core.rate_limit import rate_limit
+from app.models.enums import EventStatus
+from app.models.event import Event
 from app.models.user import User
 from app.schemas.queue import QueueHeartbeatResponse, QueueJoinResponse, QueueStatusResponse
 from app.services.event_service import get_show_by_id
@@ -22,6 +24,14 @@ from app.services.queue_service import get_queue_status, heartbeat_queue_token, 
 
 # Mọi route trong file này đều nằm dưới `/api/shows/{show_id}/queue`.
 router = APIRouter(prefix="/shows/{show_id}/queue", tags=["queue"])
+
+
+async def _get_public_show_or_404(session: AsyncSession, show_id: int):
+    show = await get_show_by_id(session, show_id)
+    event = await session.get(Event, show.event_id)
+    if show.status != EventStatus.LIVE or not event or event.status != EventStatus.LIVE:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy buổi diễn")
+    return show
 
 
 @router.post("/join", response_model=QueueJoinResponse, dependencies=[Depends(rate_limit("queue-join", times=5, seconds=60))])
@@ -46,7 +56,7 @@ async def join_queue(
     """
 
     # Lấy show để service biết cấu hình queue của buổi diễn: bật/tắt, batch, số slot active.
-    show = await get_show_by_id(session, show_id)
+    show = await _get_public_show_or_404(session, show_id)
 
     # Service tự quyết định user được `admitted` ngay hay phải `waiting`.
     return await join_show_queue(session, show=show, user_id=current_user.id)
@@ -74,6 +84,7 @@ async def queue_status(
     - Rate limit 60 lần/phút đủ cho polling nhưng chặn vòng lặp lỗi quá nhanh.
     """
 
+    await _get_public_show_or_404(session, show_id)
     # Service kiểm tra token có thuộc đúng user/show không rồi tính vị trí hiện tại.
     return await get_queue_status(session, show_id=show_id, token=token, user_id=current_user.id)
 
@@ -100,6 +111,7 @@ async def queue_heartbeat(
     - Nếu token hết hạn, service trả lỗi 410 để frontend quay lại hàng đợi.
     """
 
+    await _get_public_show_or_404(session, show_id)
     # `heartbeat_queue_token` chỉ nhận token đã admitted; token waiting sẽ bị từ chối.
     entry = await heartbeat_queue_token(session, show_id=show_id, token=token, user_id=current_user.id)
     return QueueHeartbeatResponse(token=entry.token, status=entry.status, admitted_until=entry.expires_at)

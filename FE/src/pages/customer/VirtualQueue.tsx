@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
 import axios from 'axios'
 
@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/Button'
 import { useAuth } from '@/context/AuthContext'
 import { queueApi } from '@/features/booking/api/queueApi'
 import { extractApiErrorMessage } from '@/lib/api'
-import { queueStorage } from '@/lib/storage'
+import { flashNoticeStorage, queueStorage } from '@/lib/storage'
 import type { QueueJoinResponse, QueueStatusResponse } from '@/types'
 import { AlertTriangle, CheckCircle2, Clock3, Loader2, LogIn, Timer } from 'lucide-react'
 
@@ -26,6 +26,10 @@ function isRecoverableQueueTokenError(error: unknown): boolean {
   return statusCode === 403 || statusCode === 404 || statusCode === 410
 }
 
+function isShowUnavailableError(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 404
+}
+
 export default function VirtualQueue() {
   const [searchParams] = useSearchParams()
   const navigate = useNavigate()
@@ -42,6 +46,7 @@ export default function VirtualQueue() {
   const [isLoading, setIsLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [retryNonce, setRetryNonce] = useState(0)
+  const interruptionRedirectTimerRef = useRef<number | null>(null)
 
   const etaMinutes = useMemo(() => {
     if (!position || position <= 0) return 0
@@ -53,6 +58,40 @@ export default function VirtualQueue() {
     if (!position || position <= 0) return message || 'Bạn đang ở trong hàng đợi. Vui lòng không tải lại trang.'
     return `Bạn đang ở vị trí thứ ${position} trong hàng đợi. Vui lòng không tải lại trang.`
   }, [message, position, status])
+
+  useEffect(() => {
+    return () => {
+      if (interruptionRedirectTimerRef.current !== null) {
+        window.clearTimeout(interruptionRedirectTimerRef.current)
+      }
+    }
+  }, [])
+
+  const handleShowUnavailable = useCallback(() => {
+    if (showId && !Number.isNaN(showId)) {
+      queueStorage.clearToken(showId)
+    }
+    flashNoticeStorage.set({
+      variant: 'warning',
+      title: 'Show đang được cập nhật',
+      description: 'Phiên hàng đợi hiện tại đã kết thúc vì admin đang chỉnh sửa show. Vui lòng chọn show khác hoặc quay lại sau.',
+    })
+    setQueueToken(null)
+    setStatus('expired')
+    setPosition(null)
+    setAdmittedUntil(null)
+    setMessage('Show đang được cập nhật. Phiên hàng đợi hiện tại đã kết thúc.')
+    setError('Show đang được cập nhật. Hệ thống sẽ đưa bạn về trang sự kiện.')
+    setIsLoading(false)
+
+    if (interruptionRedirectTimerRef.current !== null) {
+      window.clearTimeout(interruptionRedirectTimerRef.current)
+    }
+
+    interruptionRedirectTimerRef.current = window.setTimeout(() => {
+      navigate(eventKey ? `/event/${eventKey}` : '/search', { replace: true })
+    }, 1500)
+  }, [eventKey, navigate, showId])
 
   useEffect(() => {
     if (!showId || Number.isNaN(showId)) {
@@ -90,6 +129,10 @@ export default function VirtualQueue() {
         }
       } catch (joinError) {
         if (disposed) return
+        if (isShowUnavailableError(joinError)) {
+          handleShowUnavailable()
+          return
+        }
         setError(extractApiErrorMessage(joinError, 'Không thể tham gia hàng đợi.'))
       } finally {
         if (!disposed) setIsLoading(false)
@@ -123,6 +166,11 @@ export default function VirtualQueue() {
         }
       } catch (pollError) {
         if (disposed) return
+
+        if (isShowUnavailableError(pollError)) {
+          handleShowUnavailable()
+          return
+        }
 
         if (isRecoverableQueueTokenError(pollError)) {
           queueStorage.clearToken(showId)
@@ -160,7 +208,7 @@ export default function VirtualQueue() {
       disposed = true
       if (statusTimer) window.clearInterval(statusTimer)
     }
-  }, [isAuthenticated, navigate, retryNonce, showId])
+  }, [handleShowUnavailable, isAuthenticated, navigate, retryNonce, showId])
 
   useEffect(() => {
     if (!showId || Number.isNaN(showId) || status !== 'admitted' || !queueToken) {
@@ -169,6 +217,11 @@ export default function VirtualQueue() {
 
     const heartbeatTimer = window.setInterval(() => {
       void queueApi.heartbeat(showId, queueToken).catch((heartbeatError) => {
+        if (isShowUnavailableError(heartbeatError)) {
+          handleShowUnavailable()
+          return
+        }
+
         if (!isRecoverableQueueTokenError(heartbeatError)) {
           return
         }
@@ -183,7 +236,7 @@ export default function VirtualQueue() {
     }, 30000)
 
     return () => window.clearInterval(heartbeatTimer)
-  }, [queueToken, showId, status])
+  }, [handleShowUnavailable, queueToken, showId, status])
 
   return (
     <div className="min-h-screen text-white">

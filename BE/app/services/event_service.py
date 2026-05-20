@@ -51,7 +51,7 @@ from app.core.search import build_ilike_pattern, sanitize_search_query
 #   build_ilike_pattern(): tự viết - tạo mẫu LIKE không phân biệt hoa thường
 #   sanitize_search_query(): tự viết - làm sạch truy vấn tìm kiếm, giới hạn độ dài
 
-from app.models.enums import SeatStatus
+from app.models.enums import EventStatus, SeatStatus
 #   SeatStatus: enum tự viết - AVAILABLE, LOCKED, SOLD
 
 from app.models.event import Event, SeatZone, Show, ShowPolygon
@@ -885,6 +885,7 @@ async def list_event_shows(
     session: AsyncSession,
     event_id: int,
     include_deleted: bool = False,  # Python bool: có lấy show đã xóa không
+    live_only: bool = False,
 ) -> list[Show]:
     """Liệt kê các buổi diễn con của một sự kiện.
     
@@ -905,6 +906,8 @@ async def list_event_shows(
     # Nếu không include_deleted → thêm điều kiện is_deleted = False
     if not include_deleted:
         stmt = stmt.where(Show.is_deleted.is_(False))  # .is_() SQLAlchemy: kiểm tra False
+    if live_only:
+        stmt = stmt.where(Show.status == EventStatus.LIVE)
     
     # Sắp xếp theo thời gian bắt đầu, rồi đến ID
     stmt = stmt.order_by(Show.start_at.asc(), Show.id.asc())
@@ -922,6 +925,7 @@ async def list_shows_for_event_ids(
     event_ids: list[int],                     # Python list: danh sách ID events
     *,
     include_deleted: bool = False,
+    live_only: bool = False,
 ) -> dict[int, list[Show]]:
     """Tải hàng loạt buổi diễn của nhiều sự kiện để tránh truy vấn lặp N+1.
     
@@ -946,6 +950,8 @@ async def list_shows_for_event_ids(
     
     if not include_deleted:
         stmt = stmt.where(Show.is_deleted.is_(False))
+    if live_only:
+        stmt = stmt.where(Show.status == EventStatus.LIVE)
     
     # Sắp xếp theo event_id → start_at → id
     stmt = stmt.order_by(Show.event_id.asc(), Show.start_at.asc(), Show.id.asc())
@@ -964,22 +970,25 @@ async def list_shows_for_event_ids(
 async def list_event_max_prices_for_event_ids(
     session: AsyncSession,
     event_ids: list[int],
+    live_only: bool = False,
 ) -> dict[int, float]:
     """Tổng hợp giá ghế lớn nhất của từng sự kiện từ bảng seats."""
 
     if not event_ids:
         return {}
 
-    rows = (
-        await session.execute(
-            select(
-                Seat.event_id,
-                func.max(Seat.price).label("max_price"),
-            )
-            .where(Seat.event_id.in_(event_ids))
-            .group_by(Seat.event_id)
+    stmt = (
+        select(
+            Seat.event_id,
+            func.max(Seat.price).label("max_price"),
         )
-    ).all()
+        .where(Seat.event_id.in_(event_ids))
+        .group_by(Seat.event_id)
+    )
+    if live_only:
+        stmt = stmt.join(Show, Seat.show_id == Show.id).where(Show.status == EventStatus.LIVE, Show.is_deleted.is_(False))
+
+    rows = (await session.execute(stmt)).all()
 
     return {int(row.event_id): float(row.max_price or 0) for row in rows if row.event_id is not None}
 
@@ -1345,6 +1354,7 @@ async def list_live_events(
     end_to: datetime | None,      # Python: lọc đến ngày (có thể None)
     limit: int = 30,              # Python int: số lượng tối đa
     offset: int = 0,              # Python int: vị trí bắt đầu (phân trang)
+    include_unpublished: bool = False,
 ) -> list[Event]:
     """Trả danh sách sự kiện public kèm bộ lọc tìm kiếm/thể loại/thời gian.
     
@@ -1365,6 +1375,8 @@ async def list_live_events(
 
     # SQLAlchemy: SELECT * FROM events WHERE is_deleted = FALSE
     stmt = select(Event).where(Event.is_deleted.is_(False))
+    if not include_unpublished:
+        stmt = stmt.where(Event.status == EventStatus.LIVE)
     stmt = stmt.order_by(Event.start_date.asc(), Event.id.asc())
 
     # Áp dụng bộ lọc tìm kiếm (nếu có)
@@ -1536,6 +1548,7 @@ async def build_event_card_response(
 async def build_event_detail_response(
     session: AsyncSession,
     event: Event,
+    include_unpublished_shows: bool = False,
 ) -> EventDetailResponse:
     """Dựng payload chi tiết sự kiện kèm danh sách buổi diễn.
     
@@ -1550,7 +1563,7 @@ async def build_event_detail_response(
     """
 
     # Load danh sách shows của event
-    shows = await list_event_shows(session, event.id)
+    shows = await list_event_shows(session, event.id, live_only=not include_unpublished_shows)
     
     # Tạo card response trước
     card = await build_event_card_response(session, event, shows=shows)

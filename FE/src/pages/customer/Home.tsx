@@ -164,7 +164,8 @@ export default function Home() {
                 key={event.id}
                 image={event.cover_image_url || FALLBACK_IMAGE}
                 title={event.title}
-                date={formatDate(event.start_at)}
+                date={event.start_at}
+                endDate={event.end_at}
                 venue={event.venue}
                 price="Xem chi tiết"
                 badge={event.category}

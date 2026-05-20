@@ -89,6 +89,7 @@ from app.models.queue import QueueEntry
 #                Chứa: token, status, created_at, admitted_at, expires_at...
 
 from app.schemas.queue import QueueJoinResponse, QueueStatusResponse
+from app.services.dashboard_service import broadcast_dashboard_update
 #   QueueJoinResponse   : Pydantic schema tự viết trong app/schemas/queue.py
 #                         Định dạng JSON trả về khi user gọi API join queue
 #                         Gồm: token, status, position, message, admitted_until
@@ -424,6 +425,8 @@ async def join_show_queue(session: AsyncSession, show: Show, user_id: int) -> Qu
                               #   Sau dòng này, entry đã có trong DB
     await session.refresh(entry)  # SQLAlchemy: load lại từ DB để lấy giá trị auto-generated
                                   #   vd: id (auto-increment), created_at (default)
+    if entry.status == QueueStatus.WAITING:
+        await broadcast_dashboard_update()
 
     # ============================================================
     # TRẢ VỀ RESPONSE TƯƠNG ỨNG VỚI TRẠNG THÁI

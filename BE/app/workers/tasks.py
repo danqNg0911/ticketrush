@@ -7,9 +7,9 @@ from datetime import UTC, datetime
 from app.core.cache import public_api_cache, show_seat_cache_namespace
 from app.core.db import AsyncSessionLocal
 from app.services.booking_service import release_expired_locks
-from app.services.dashboard_service import get_dashboard_summary
+from app.services.dashboard_service import broadcast_dashboard_update
 from app.services.queue_service import cleanup_expired_queue_entries, process_virtual_queue
-from app.ws.connection_manager import admin_ws_manager, seat_ws_manager
+from app.ws.connection_manager import seat_ws_manager
 
 logger = logging.getLogger(__name__)
 
@@ -65,20 +65,20 @@ class WorkerOrchestrator:
                         # Seat map public bị cache nên phải xóa cache trước khi phát WebSocket.
                         await public_api_cache.invalidate_namespace(show_seat_cache_namespace(show_id))
                         await seat_ws_manager.broadcast_seat_changes(show_id, payload)
+                    if released_by_show:
+                        await broadcast_dashboard_update()
 
                 async with AsyncSessionLocal() as session:
                     # Job 2: xét hàng đợi ảo và admit thêm user khi còn slot.
-                    await process_virtual_queue(session)
+                    admitted_count = await process_virtual_queue(session)
+                    if admitted_count:
+                        await broadcast_dashboard_update()
 
                 async with AsyncSessionLocal() as session:
                     # Job 3: dọn queue token hết hạn để bảng queue không phình mãi.
-                    await cleanup_expired_queue_entries(session)
-
-                if admin_ws_manager.has_clients():
-                    async with AsyncSessionLocal() as session:
-                        # Job 4: phát KPI dashboard realtime khi có admin đang mở màn hình.
-                        summary = await get_dashboard_summary(session)
-                        await admin_ws_manager.broadcast(summary.model_dump())
+                    deleted_count = await cleanup_expired_queue_entries(session)
+                    if deleted_count:
+                        await broadcast_dashboard_update()
             except Exception:  # pragma: no cover - ghi log phòng vệ khi worker chạy thật
                 logger.exception("Vòng lặp worker nền gặp lỗi")
 

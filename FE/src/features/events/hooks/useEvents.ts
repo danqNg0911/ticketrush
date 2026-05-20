@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
+import axios from 'axios'
 import type { EventCard, EventDetail, SeatMatrixResponse } from '../../../types'
 import { eventsApi } from '../api/eventsApi'
 
@@ -114,10 +115,13 @@ export function useShowSeats(showId?: number, options?: { pollIntervalMs?: numbe
       hasLoadedRef.current = true
       setState({ seats, isLoading: false, error: null })
     } catch (error) {
+      const statusCode = axios.isAxiosError(error) ? error.response?.status : null
       setState((prev) => ({
         ...prev,
         isLoading: false,
-        error: hasLoadedRef.current ? prev.error : error instanceof Error ? error.message : 'Không tải được sơ đồ ghế',
+        error: !hasLoadedRef.current || statusCode === 404 || statusCode === 410
+          ? error instanceof Error ? error.message : 'Không tải được sơ đồ ghế'
+          : prev.error,
       }))
     }
   }, [showId])

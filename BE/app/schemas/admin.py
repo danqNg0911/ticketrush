@@ -2,6 +2,8 @@
 
 from pydantic import BaseModel
 
+from app.schemas.event import EventOccupancyResponse
+
 
 class DashboardSummaryResponse(BaseModel):
     """Các chỉ số KPI tổng quan hiển thị trên thẻ dashboard admin."""
@@ -29,10 +31,9 @@ class AudienceDistributionResponse(BaseModel):
 class DashboardStreamResponse(BaseModel):
     """Payload phát qua WebSocket để dashboard admin cập nhật gần thời gian thực."""
 
-    total_revenue: float
-    tickets_sold: int
-    active_events: int
-    waiting_queue_users: int
+    summary: DashboardSummaryResponse
+    revenue: list[RevenuePoint]
+    occupancy: list[EventOccupancyResponse]
 
 
 class UploadImageResponse(BaseModel):

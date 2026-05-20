@@ -3,6 +3,8 @@
 # ============================================================
 # IMPORTS TỪ THƯ VIỆN PYTHON (built-in)
 # ============================================================
+import asyncio
+import logging
 from datetime import UTC, datetime, timedelta  # Python built-in: xử lý thời gian
 from decimal import Decimal                     # Python built-in: số thập phân chính xác cho tiền tệ
 from uuid import uuid4                          # Python built-in: sinh chuỗi UUID ngẫu nhiên
@@ -22,8 +24,9 @@ from app.core.cache import (
     show_seat_cache_namespace,        # Tự viết: tạo cache key cho sơ đồ ghế của show
     user_ticket_cache_namespace,      # Tự viết: tạo cache key cho vé của user
 )
+from app.core.db import AsyncSessionLocal
 from app.core.search import build_ilike_pattern  # Tự viết: tạo pattern tìm kiếm LIKE không phân biệt hoa thường
-from app.models.enums import OrderStatus, SeatStatus  # Tự viết: enum trạng thái đơn hàng và ghế
+from app.models.enums import EventStatus, OrderStatus, SeatStatus  # Tự viết: enum trạng thái đơn hàng và ghế
 from app.models.event import Event, SeatZone, Show     # Tự viết: ORM models cho sự kiện, vùng ghế, buổi diễn
 from app.models.order import (
     Order,              # Tự viết: ORM model đơn hàng
@@ -40,8 +43,12 @@ from app.schemas.booking import (
 from app.services.queue_service import (
     ensure_queue_access,    # Tự viết: hàm kiểm tra quyền vào từ hàng đợi
     mark_queue_completed,   # Tự viết: hàm đánh dấu hoàn tất hàng đợi sau thanh toán
+    process_virtual_queue,
 )
+from app.services.dashboard_service import broadcast_dashboard_update
 from app.ws.connection_manager import seat_ws_manager  # Tự viết: WebSocket manager cho cập nhật ghế realtime
+
+logger = logging.getLogger(__name__)
 
 
 def _as_utc(value: datetime | None) -> datetime | None:
@@ -84,7 +91,17 @@ async def _get_show_or_404(session: AsyncSession, show_id: int) -> Show:
     # `Show.id` là SQLAlchemy Mapped column (tự định nghĩa trong model)
     # `Show.is_deleted.is_(False)` là SQLAlchemy: kiểm tra cột boolean = False
     # `session.scalar()` là SQLAlchemy AsyncSession: thực thi query, trả về 1 giá trị hoặc None
-    show = await session.scalar(select(Show).where(Show.id == show_id, Show.is_deleted.is_(False)))
+    show = await session.scalar(
+        select(Show)
+        .join(Event, Show.event_id == Event.id)
+        .where(
+            Show.id == show_id,
+            Show.is_deleted.is_(False),
+            Show.status == EventStatus.LIVE,
+            Event.is_deleted.is_(False),
+            Event.status == EventStatus.LIVE,
+        )
+    )
     
     # `HTTPException` là FastAPI (thư viện): tạo response lỗi HTTP
     # `status.HTTP_404_NOT_FOUND` là FastAPI (thư viện): mã trạng thái 404
@@ -92,6 +109,38 @@ async def _get_show_or_404(session: AsyncSession, show_id: int) -> Show:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy buổi diễn")
     
     return show
+
+
+async def _release_expired_locks_at(expires_at: datetime) -> None:
+    """Mở lock đúng thời điểm hết hạn cho luồng realtime dashboard."""
+
+    delay = max((_as_utc(expires_at) - datetime.now(UTC)).total_seconds(), 0) if expires_at else 0
+    await asyncio.sleep(delay)
+
+    try:
+        async with AsyncSessionLocal() as session:
+            released_by_show = await release_expired_locks(session)
+
+        for released_show_id, payload in released_by_show.items():
+            await public_api_cache.invalidate_namespace(show_seat_cache_namespace(released_show_id))
+            await seat_ws_manager.broadcast_seat_changes(show_id=released_show_id, payload=payload)
+
+        if released_by_show:
+            await broadcast_dashboard_update()
+    except Exception:
+        logger.exception("Không thể mở ghế hết hạn theo lịch realtime")
+
+
+def _schedule_lock_expiration(expires_at: datetime) -> None:
+    asyncio.create_task(_release_expired_locks_at(expires_at))
+
+
+async def _process_queue_after_checkout(queue_token: str | None) -> None:
+    if not queue_token:
+        return
+
+    async with AsyncSessionLocal() as session:
+        await process_virtual_queue(session)
 
 
 async def lock_seats(
@@ -221,6 +270,8 @@ async def lock_seats(
         await public_api_cache.invalidate_namespace(show_seat_cache_namespace(show_id))
         # `seat_ws_manager.broadcast_seat_changes()` là tự viết: gửi WebSocket
         await seat_ws_manager.broadcast_seat_changes(show_id=show_id, payload=changed_seats)
+        await broadcast_dashboard_update()
+        _schedule_lock_expiration(expires_at)
 
     # `LockSeatsResponse` là Pydantic schema tự viết
     # `sorted()` là Python built-in: sắp xếp danh sách
@@ -291,6 +342,7 @@ async def release_seats(session: AsyncSession, user_id: int, show_id: int, seat_
     if changed_seats:
         await public_api_cache.invalidate_namespace(show_seat_cache_namespace(show_id))
         await seat_ws_manager.broadcast_seat_changes(show_id=show_id, payload=changed_seats)
+        await broadcast_dashboard_update()
 
     return count  # Python built-in: trả về số ghế đã thả
 
@@ -463,6 +515,8 @@ async def checkout_locked_seats(
     if changed_seats:
         await public_api_cache.invalidate_namespace(show_seat_cache_namespace(show_id))
         await seat_ws_manager.broadcast_seat_changes(show_id=show_id, payload=changed_seats)
+        await _process_queue_after_checkout(queue_token)
+        await broadcast_dashboard_update()
     await public_api_cache.invalidate_namespace(user_ticket_cache_namespace(user_id))
 
     # Trả về response

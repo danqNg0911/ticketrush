@@ -52,7 +52,7 @@ const INITIAL_EVENT_FORM: EventFormState = {
   category: '',
   start_date: '',
   end_date: '',
-  status: 'live',
+  status: 'draft',
   cover_image_url: '',
   image_file: null,
 }
@@ -64,7 +64,7 @@ const INITIAL_SHOW_FORM: ShowFormState = {
   show_date: '',
   start_time: '19:00',
   end_time: '21:00',
-  status: 'live',
+  status: 'draft',
   queue_enabled: true,
   hold_minutes: '10',
   queue_release_batch: '50',
@@ -81,6 +81,8 @@ const INITIAL_SHOW_FORM: ShowFormState = {
   zone_color: '#024ddf',
 }
 
+const VIETNAM_TIME_ZONE = 'Asia/Ho_Chi_Minh'
+
 function statusBadge(status: EventStatus) {
   const variants: Record<EventStatus, { text: string; className: string }> = {
     draft: { text: 'Draft', className: 'bg-gray-500/20 text-gray-300' },
@@ -92,13 +94,59 @@ function statusBadge(status: EventStatus) {
   return <Badge className={variant.className}>{variant.text}</Badge>
 }
 
-function isoDate(value: string) {
+function getVietnamDateTimeParts(value: string) {
   if (!value) return ''
-  return new Date(value).toISOString().slice(0, 10)
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return ''
+
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: VIETNAM_TIME_ZONE,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    hour12: false,
+    hourCycle: 'h23',
+  }).formatToParts(date)
+
+  return Object.fromEntries(parts.map((part) => [part.type, part.value]))
+}
+
+function formatUtcDateInput(value: string) {
+  if (!value) return ''
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10)
+  const date = new Date(value)
+  return Number.isNaN(date.getTime()) ? '' : date.toISOString().slice(0, 10)
+}
+
+function formatVietnamDateInput(value: string) {
+  const parts = getVietnamDateTimeParts(value)
+  if (!parts) return ''
+  return `${parts.year}-${parts.month}-${parts.day}`
+}
+
+function formatVietnamTimeInput(value: string) {
+  const parts = getVietnamDateTimeParts(value)
+  if (!parts) return ''
+  return `${parts.hour}:${parts.minute}`
+}
+
+function vietnamDateTimeInputToUtcParts(dateValue: string, timeValue: string) {
+  const instant = new Date(`${dateValue}T${timeValue}:00+07:00`)
+  if (Number.isNaN(instant.getTime())) {
+    return { date: dateValue, time: timeValue }
+  }
+
+  const isoValue = instant.toISOString()
+  return {
+    date: isoValue.slice(0, 10),
+    time: isoValue.slice(11, 16),
+  }
 }
 
 function formatDateTime(value: string) {
-  return new Date(value).toLocaleString('vi-VN')
+  return new Date(value).toLocaleString('vi-VN', { timeZone: VIETNAM_TIME_ZONE })
 }
 
 export default function AdminEvents() {
@@ -176,7 +224,7 @@ export default function AdminEvents() {
   function resetShowForm(eventDetail?: EventDetail | null) {
     setShowForm({
       ...INITIAL_SHOW_FORM,
-      show_date: eventDetail ? isoDate(eventDetail.start_at) : '',
+      show_date: eventDetail ? formatUtcDateInput(eventDetail.start_at) : '',
     })
     setEditingShow(null)
     setVenueLayouts([])
@@ -195,8 +243,8 @@ export default function AdminEvents() {
       title: event.title,
       description: event.description,
       category: event.category,
-      start_date: isoDate(event.start_at),
-      end_date: isoDate(event.end_at),
+      start_date: formatUtcDateInput(event.start_at),
+      end_date: formatUtcDateInput(event.end_at),
       status: event.status,
       cover_image_url: event.cover_image_url || '',
       image_file: null,
@@ -214,7 +262,22 @@ export default function AdminEvents() {
     }
   }
 
-  async function handleDeleteEvent(eventKey: string) {
+  async function handleDeleteEvent(eventItem: EventCard) {
+    if (eventItem.status !== 'draft') {
+      if (!window.confirm('Sự kiện phải ở trạng thái Draft trước khi xóa. Chuyển sự kiện này về Draft ngay?')) return
+      try {
+        await adminApi.updateEvent(eventItem.slug, { status: 'draft' })
+        await loadEvents()
+        if (activeEvent?.slug === eventItem.slug) {
+          await loadEventDetail(eventItem.slug)
+        }
+      } catch (errorValue) {
+        setError(extractApiErrorMessage(errorValue, 'Không thể chuyển sự kiện về Draft.'))
+      }
+      return
+    }
+
+    const eventKey = eventItem.slug
     if (!window.confirm('Bạn có chắc muốn xóa sự kiện này?')) return
     try {
       await adminApi.deleteEvent(eventKey)
@@ -302,6 +365,18 @@ export default function AdminEvents() {
   async function openEditShowModal(show: ShowSummary) {
     if (!activeEvent) return
 
+    if (show.status !== 'draft') {
+      if (!window.confirm('Show đang Live. Show sẽ được chuyển về Draft trước khi chỉnh sửa. Tiếp tục?')) return
+      try {
+        await adminApi.updateShow(activeEvent.slug, show.id, { status: 'draft' })
+        await loadEventDetail(activeEvent.slug)
+        await loadEvents()
+      } catch (errorValue) {
+        setFormError(extractApiErrorMessage(errorValue, 'Không thể chuyển show về Draft.'))
+        return
+      }
+    }
+
     const detail = await adminApi.getShow(activeEvent.slug, show.id)
 
     setEditingShow(show)
@@ -311,9 +386,9 @@ export default function AdminEvents() {
       title: detail.title,
       description: detail.description,
       venue: detail.venue,
-      show_date: isoDate(detail.start_at),
-      start_time: new Date(detail.start_at).toISOString().slice(11, 16),
-      end_time: new Date(detail.end_at).toISOString().slice(11, 16),
+      show_date: formatVietnamDateInput(detail.start_at),
+      start_time: formatVietnamTimeInput(detail.start_at),
+      end_time: formatVietnamTimeInput(detail.end_at),
       status: detail.status,
       queue_enabled: detail.queue_enabled,
       seat_map_mode: detail.venue_layout_id ? 'venue' : 'free',
@@ -345,8 +420,37 @@ export default function AdminEvents() {
     setShowModalOpen(true)
   }
 
+  async function openSeatPlanner(show: ShowSummary) {
+    if (!activeEvent) return
+    if (show.status !== 'draft') {
+      if (!window.confirm('Seat Planner là thao tác chỉnh sửa show. Show sẽ được chuyển về Draft trước khi mở planner. Tiếp tục?')) return
+      try {
+        await adminApi.updateShow(activeEvent.slug, show.id, { status: 'draft' })
+        await loadEventDetail(activeEvent.slug)
+        await loadEvents()
+      } catch (errorValue) {
+        setFormError(extractApiErrorMessage(errorValue, 'Không thể chuyển show về Draft.'))
+        return
+      }
+    }
+
+    navigate(`/admin/events/${activeEvent.slug}/shows/${show.id}/seating`)
+  }
+
   async function handleDeleteShow(show: ShowSummary) {
-    if (!activeEvent || !window.confirm(`Xóa show "${show.title}"?`)) return
+    if (!activeEvent) return
+    if (show.status !== 'draft') {
+      if (!window.confirm(`Show "${show.title}" phải ở trạng thái Draft trước khi xóa. Chuyển về Draft ngay?`)) return
+      try {
+        await adminApi.updateShow(activeEvent.slug, show.id, { status: 'draft' })
+        await loadEventDetail(activeEvent.slug)
+        await loadEvents()
+      } catch (errorValue) {
+        setFormError(extractApiErrorMessage(errorValue, 'Không thể chuyển show về Draft.'))
+      }
+      return
+    }
+    if (!window.confirm(`Xóa show "${show.title}"?`)) return
     try {
       await adminApi.deleteShow(activeEvent.slug, show.id)
       await loadEventDetail(activeEvent.slug)
@@ -374,13 +478,15 @@ export default function AdminEvents() {
     setSaving(true)
     setFormError(null)
     try {
+      const utcStart = vietnamDateTimeInputToUtcParts(showForm.show_date, showForm.start_time)
+      const utcEnd = vietnamDateTimeInputToUtcParts(showForm.show_date, showForm.end_time)
       const payload = {
         title: showForm.title,
         description: showForm.description,
         venue: showForm.venue,
-        show_date: showForm.show_date,
-        start_time: showForm.start_time,
-        end_time: showForm.end_time,
+        show_date: utcStart.date,
+        start_time: utcStart.time,
+        end_time: utcEnd.time,
         status: showForm.status,
         queue_enabled: showForm.queue_enabled,
         hold_minutes: Number(showForm.hold_minutes),
@@ -525,7 +631,7 @@ export default function AdminEvents() {
                   <Button variant="ghost" size="sm" className="text-slate-200 hover:text-slate-500" onClick={() => openEditEventModal(event)}>
                     <Edit className="h-4 w-4" /> Sửa event
                   </Button>
-                  <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300" onClick={() => void handleDeleteEvent(event.slug)}>
+                  <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300" onClick={() => void handleDeleteEvent(event)}>
                     <Trash2 className="h-4 w-4" /> Xóa
                   </Button>
                 </div>
@@ -658,7 +764,7 @@ export default function AdminEvents() {
                         </div>
 
                         <div className="flex flex-wrap gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => navigate(`/admin/events/${activeEvent.slug}/shows/${show.id}/seating`)}>
+                          <Button variant="ghost" size="sm" onClick={() => void openSeatPlanner(show)}>
                             Seat Planner
                           </Button>
                           <Button variant="ghost" size="sm" onClick={() => void openEditShowModal(show)}>
@@ -731,8 +837,8 @@ export default function AdminEvents() {
               <Input
                 className="text-white"
                 type="date"
-                min={activeEvent ? isoDate(activeEvent.start_at) : undefined}
-                max={activeEvent ? isoDate(activeEvent.end_at) : undefined}
+                min={activeEvent ? formatUtcDateInput(activeEvent.start_at) : undefined}
+                max={activeEvent ? formatUtcDateInput(activeEvent.end_at) : undefined}
                 value={showForm.show_date}
                 onChange={(event) => setShowForm((prev) => ({ ...prev, show_date: event.target.value }))}
               />
