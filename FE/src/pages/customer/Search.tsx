@@ -13,13 +13,6 @@ const FALLBACK_IMAGE =
   'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1200&q=80'
 const DEFAULT_PRICE_LIMIT = 5_000_000
 
-function formatDate(date: string) {
-  return new Date(date).toLocaleDateString('vi-VN', {
-    month: '2-digit',
-    day: '2-digit',
-  })
-}
-
 export default function Search() {
   const [urlParams, setUrlParams] = useSearchParams()
   const urlParamsKey = urlParams.toString()
@@ -285,7 +278,8 @@ export default function Search() {
                     key={event.id}
                     image={event.cover_image_url || FALLBACK_IMAGE}
                     title={event.title}
-                    date={formatDate(event.start_at)}
+                    date={event.start_at}
+                    endDate={event.end_at}
                     venue={event.venue}
                     price="Xem giá ghế"
                     badge={event.category}
