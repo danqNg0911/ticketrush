@@ -13,9 +13,10 @@ from app.api.deps import get_current_active_admin
 from app.core.cache import EVENT_DETAIL_CACHE_NAMESPACE, EVENT_LIST_CACHE_NAMESPACE, public_api_cache, show_seat_cache_namespace
 from app.core.db import get_db_session
 from app.core.search import build_ilike_pattern, sanitize_search_query
-from app.models.enums import OrderStatus, SeatStatus
+from app.models.enums import EventStatus, OrderStatus, QueueStatus, SeatStatus
 from app.models.event import Event, SeatZone, Show, ShowPolygon
 from app.models.order import Order, OrderItem, Ticket
+from app.models.queue import QueueEntry
 from app.models.seat import Seat
 from app.models.user import User
 from app.models.venue import Section
@@ -84,6 +85,7 @@ from app.services.event_service import (
     list_show_zones,
     update_show_zone,
 )
+from app.ws.connection_manager import seat_ws_manager
 
 router = APIRouter(prefix="/admin", tags=["admin"])
 
@@ -110,12 +112,63 @@ async def _invalidate_show_cache(show_id: int) -> None:
     await public_api_cache.invalidate_namespace(EVENT_DETAIL_CACHE_NAMESPACE)
 
 
+async def _interrupt_active_show_sessions(session: AsyncSession, show: Show) -> tuple[list[dict[str, int | str | None]], int]:
+    locked_seats = list(
+        await session.scalars(
+            select(Seat)
+            .where(
+                Seat.show_id == show.id,
+                Seat.status == SeatStatus.LOCKED,
+                Seat.locked_by_user_id.is_not(None),
+            )
+            .order_by(Seat.id.asc())
+            .with_for_update()
+        )
+    )
+    changed_seats: list[dict[str, int | str | None]] = []
+    for seat in locked_seats:
+        seat.status = SeatStatus.AVAILABLE
+        seat.locked_by_user_id = None
+        seat.lock_expires_at = None
+        changed_seats.append(
+            {
+                "id": seat.id,
+                "status": SeatStatus.AVAILABLE.value,
+                "lock_expires_at": None,
+                "locked_by_user_id": None,
+            }
+        )
+
+    active_entries = list(
+        await session.scalars(
+            select(QueueEntry)
+            .where(
+                QueueEntry.show_id == show.id,
+                QueueEntry.status.in_([QueueStatus.WAITING, QueueStatus.ADMITTED]),
+            )
+            .order_by(QueueEntry.id.asc())
+            .with_for_update()
+        )
+    )
+    now = datetime.now(UTC)
+    for entry in active_entries:
+        entry.status = QueueStatus.EXPIRED
+        entry.expires_at = now
+
+    return changed_seats, len(active_entries)
+
+
 async def _build_event_or_404_show(session: AsyncSession, event_key: str, show_id: int) -> tuple[Event, Show]:
     event = await get_event_by_slug_or_id(session, event_key)
     show = await get_show_by_id(session, show_id)
     if show.event_id != event.id:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy buổi diễn thuộc sự kiện này")
     return event, show
+
+
+def _ensure_show_is_draft(show: Show) -> None:
+    if show.status != EventStatus.DRAFT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Seat Planner chỉ được chỉnh sửa show ở trạng thái draft")
 
 
 def _validate_unique_ids(values: list[int], detail: str) -> None:
@@ -261,7 +314,7 @@ async def create_admin_event(
     await public_api_cache.invalidate_namespace(EVENT_LIST_CACHE_NAMESPACE)
     await public_api_cache.invalidate_namespace(EVENT_DETAIL_CACHE_NAMESPACE)
     await broadcast_dashboard_update()
-    return await build_event_detail_response(session, event)
+    return await build_event_detail_response(session, event, include_unpublished_shows=True)
 
 
 @router.get("/events", response_model=list[EventCardResponse])
@@ -277,7 +330,16 @@ async def list_admin_events(
 ) -> list[EventCardResponse]:
     """Liệt kê toàn bộ sự kiện cho màn quản trị."""
 
-    events = await list_live_events(session, search=search, category=category, start_from=start_from, end_to=end_to, limit=limit, offset=offset)
+    events = await list_live_events(
+        session,
+        search=search,
+        category=category,
+        start_from=start_from,
+        end_to=end_to,
+        limit=limit,
+        offset=offset,
+        include_unpublished=True,
+    )
     shows_by_event_id = await list_shows_for_event_ids(session, [event.id for event in events], include_deleted=True)
     max_prices_by_event_id = await list_event_max_prices_for_event_ids(session, [event.id for event in events])
     return [
@@ -300,7 +362,7 @@ async def get_admin_event(
     """Trả chi tiết một sự kiện cho admin."""
 
     event = await get_event_by_slug_or_id(session, event_key)
-    return await build_event_detail_response(session, event)
+    return await build_event_detail_response(session, event, include_unpublished_shows=True)
 
 
 @router.patch("/events/{event_key}", response_model=EventDetailResponse)
@@ -335,7 +397,7 @@ async def update_event(
     await public_api_cache.invalidate_namespace(EVENT_LIST_CACHE_NAMESPACE)
     await public_api_cache.invalidate_namespace(EVENT_DETAIL_CACHE_NAMESPACE)
     await broadcast_dashboard_update()
-    return await build_event_detail_response(session, event)
+    return await build_event_detail_response(session, event, include_unpublished_shows=True)
 
 
 @router.delete("/events/{event_key}", response_model=APIMessage)
@@ -347,6 +409,8 @@ async def delete_event(
     """Xóa mềm một sự kiện và các buổi diễn con."""
 
     event = await get_event_by_slug_or_id(session, event_key)
+    if event.status != EventStatus.DRAFT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Chỉ có thể xóa sự kiện ở trạng thái draft")
     shows = await list_event_shows(session, event.id, include_deleted=True)
 
     try:
@@ -427,16 +491,25 @@ async def update_admin_show(
 
     event, show = await _build_event_or_404_show(session, event_key, show_id)
     updates = payload.model_dump(exclude_unset=True)
+    is_status_only_update = set(updates) == {"status"}
+    previous_status = show.status
+    is_unpublishing_show = previous_status == EventStatus.LIVE and updates.get("status") == EventStatus.DRAFT
+    if show.status != EventStatus.DRAFT:
+        if not is_status_only_update or updates.get("status") != EventStatus.DRAFT:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Show live phải chuyển về draft trước khi chỉnh sửa")
 
-    next_date = updates.get("show_date", show.start_at.date())
-    next_start_time = updates.get("start_time", show.start_at.timetz().replace(tzinfo=None))
-    next_end_time = updates.get("end_time", show.end_at.timetz().replace(tzinfo=None))
-    next_start_at = combine_show_datetime(next_date, next_start_time)
-    next_end_at = combine_show_datetime(next_date, next_end_time)
-    if next_date < event.start_date or next_date > event.end_date:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ngày diễn phải nằm trong khoảng ngày của sự kiện")
-    if next_end_at <= next_start_at:
-        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Giờ kết thúc phải sau giờ bắt đầu")
+    next_start_at = show.start_at
+    next_end_at = show.end_at
+    if not is_status_only_update:
+        next_date = updates.get("show_date", show.start_at.date())
+        next_start_time = updates.get("start_time", show.start_at.timetz().replace(tzinfo=None))
+        next_end_time = updates.get("end_time", show.end_at.timetz().replace(tzinfo=None))
+        next_start_at = combine_show_datetime(next_date, next_start_time)
+        next_end_at = combine_show_datetime(next_date, next_end_time)
+        if next_date < event.start_date or next_date > event.end_date:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Ngày diễn phải nằm trong khoảng ngày của sự kiện")
+        if next_end_at <= next_start_at:
+            raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Giờ kết thúc phải sau giờ bắt đầu")
 
     if ("venue_id" in updates and updates["venue_id"] != show.venue_id) or ("venue_layout_id" in updates and updates["venue_layout_id"] != show.venue_layout_id):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Không hỗ trợ đổi địa điểm hoặc bố cục sau khi đã tạo buổi diễn")
@@ -449,7 +522,11 @@ async def update_admin_show(
     show.start_at = next_start_at
     show.end_at = next_end_at
 
+    interrupted_seats: list[dict[str, int | str | None]] = []
+    expired_queue_count = 0
     try:
+        if is_unpublishing_show:
+            interrupted_seats, expired_queue_count = await _interrupt_active_show_sessions(session, show)
         await session.commit()
         await session.refresh(show)
     except Exception:
@@ -457,6 +534,19 @@ async def update_admin_show(
         raise
 
     await _invalidate_show_cache(show.id)
+    if is_unpublishing_show:
+        if interrupted_seats:
+            await seat_ws_manager.broadcast_seat_changes(show.id, interrupted_seats)
+        await seat_ws_manager.broadcast_show_unpublished(
+            show.id,
+            {
+                "event_slug": event.slug,
+                "event_id": event.id,
+                "released_seat_count": len(interrupted_seats),
+                "expired_queue_count": expired_queue_count,
+                "message": "Show đang được cập nhật. Phiên đặt vé hiện tại đã kết thúc.",
+            },
+        )
     await broadcast_dashboard_update()
     return ShowDetailResponse(**(await build_show_detail_response(session, show)))
 
@@ -471,6 +561,8 @@ async def delete_admin_show(
     """Xóa mềm một buổi diễn."""
 
     _, show = await _build_event_or_404_show(session, event_key, show_id)
+    if show.status != EventStatus.DRAFT:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Chỉ có thể xóa show ở trạng thái draft")
     try:
         show.is_deleted = True
         await session.commit()
@@ -521,6 +613,7 @@ async def create_zone(
     """Tạo một khu vực ghế và sinh ghế tương ứng."""
 
     _, show = await _build_event_or_404_show(session, event_key, show_id)
+    _ensure_show_is_draft(show)
     try:
         zone = await create_show_zone(session, show, payload)
         await session.commit()
@@ -544,6 +637,7 @@ async def create_initial_zone(
     """Tạo khu vực khởi tạo planner tự do kèm ghế mẫu và polygon bao vùng."""
 
     _, show = await _build_event_or_404_show(session, event_key, show_id)
+    _ensure_show_is_draft(show)
     try:
         zone = await create_initial_show_zone(session, show, payload)
         await session.commit()
@@ -568,6 +662,7 @@ async def update_zone(
     """Cập nhật khu vực ghế và sinh lại ghế nếu hợp lệ."""
 
     _, show = await _build_event_or_404_show(session, event_key, show_id)
+    _ensure_show_is_draft(show)
     try:
         zone = await update_show_zone(session, show, zone_id, payload)
         await session.commit()
@@ -591,6 +686,7 @@ async def delete_zone(
     """Xóa khu vực ghế nếu không ảnh hưởng dữ liệu đã bán/đang giữ."""
 
     _, show = await _build_event_or_404_show(session, event_key, show_id)
+    _ensure_show_is_draft(show)
     try:
         await delete_show_zone(session, show, zone_id)
         await session.commit()
@@ -614,6 +710,7 @@ async def create_show_polygon(
     """Tạo polygon overlay cho sơ đồ ghế của buổi diễn."""
 
     _, show = await _build_event_or_404_show(session, event_key, show_id)
+    _ensure_show_is_draft(show)
     zone = None
     if payload.zone_id is not None:
         zone = await session.scalar(select(SeatZone).where(SeatZone.id == payload.zone_id, SeatZone.show_id == show.id))
@@ -646,6 +743,8 @@ async def update_show_polygon(
     polygon = await session.scalar(select(ShowPolygon).where(ShowPolygon.id == polygon_id))
     if not polygon:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy polygon của buổi diễn")
+    show = await get_show_by_id(session, polygon.show_id)
+    _ensure_show_is_draft(show)
 
     zone = None
     if payload.zone_id is not None:
@@ -681,6 +780,8 @@ async def delete_show_polygon(
     polygon = await session.scalar(select(ShowPolygon).where(ShowPolygon.id == polygon_id))
     if not polygon:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy polygon của buổi diễn")
+    show = await get_show_by_id(session, polygon.show_id)
+    _ensure_show_is_draft(show)
 
     show_id = polygon.show_id
     await session.delete(polygon)
@@ -700,6 +801,7 @@ async def create_show_seat_single(
     """Tạo một ghế có tọa độ rõ ràng cho buổi diễn hiện có."""
 
     _, show = await _build_event_or_404_show(session, event_key, show_id)
+    _ensure_show_is_draft(show)
     if not payload.zone_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bắt buộc chọn khu vực ghế")
 
@@ -753,6 +855,7 @@ async def create_show_seat_bulk(
     """Sinh ghế hàng loạt cho một buổi diễn."""
 
     _, show = await _build_event_or_404_show(session, event_key, show_id)
+    _ensure_show_is_draft(show)
     if not payload.zone_id:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Bắt buộc chọn khu vực ghế khi sinh ghế hàng loạt")
 
@@ -865,6 +968,7 @@ async def sync_show_seats(
     """Đồng bộ nhiều thay đổi ghế trong một transaction."""
 
     _, show = await _build_event_or_404_show(session, event_key, show_id)
+    _ensure_show_is_draft(show)
     existing_seats = list(await session.scalars(select(Seat).where(Seat.show_id == show.id).order_by(Seat.id.asc())))
     seat_map = {seat.id: seat for seat in existing_seats}
     zone_map = {
@@ -1015,6 +1119,7 @@ async def update_show_seat(
     """Cập nhật một ghế của buổi diễn hiện có."""
 
     _, show = await _build_event_or_404_show(session, event_key, show_id)
+    _ensure_show_is_draft(show)
     seat = await session.scalar(select(Seat).where(Seat.id == seat_id, Seat.show_id == show.id))
     if not seat:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy ghế thuộc buổi diễn này")
@@ -1075,6 +1180,7 @@ async def delete_show_seat(
     """Xóa một ghế khỏi buổi diễn hiện có."""
 
     _, show = await _build_event_or_404_show(session, event_key, show_id)
+    _ensure_show_is_draft(show)
     seat = await session.scalar(select(Seat).where(Seat.id == seat_id, Seat.show_id == show.id))
     if not seat:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy ghế thuộc buổi diễn này")

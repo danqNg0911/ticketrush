@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Các import dưới đây là code tự viết trong project.
 from app.core.db import get_db_session
 from app.core.search import sanitize_search_query
+from app.models.enums import EventStatus
 from app.models.event import Event
 from app.models.order import Ticket
 from app.models.user import User
@@ -63,7 +64,11 @@ async def suggest(
         rows = list(
             await session.scalars(
                 select(Event)
-                .where(Event.is_deleted.is_(False), or_(Event.title.ilike(pattern), Event.venue.ilike(pattern), Event.category.ilike(pattern)))
+                .where(
+                    Event.is_deleted.is_(False),
+                    Event.status == EventStatus.LIVE,
+                    or_(Event.title.ilike(pattern), Event.venue.ilike(pattern), Event.category.ilike(pattern)),
+                )
                 .order_by(Event.start_date.asc(), Event.id.asc())
                 .limit(limit)
             )

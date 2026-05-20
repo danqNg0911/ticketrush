@@ -5,7 +5,9 @@ import { Button } from '@/components/ui/Button'
 import { EventCard } from '@/components/ui/EventCard'
 // import { GlobalLoader } from '@/components/ui/GlobalLoader'
 import { Input } from '@/components/ui/Input'
+import { Toast } from '@/components/ui/Toast'
 import { useEvents } from '@/features/events/hooks/useEvents'
+import { flashNoticeStorage, type FlashNotice } from '@/lib/storage'
 import { formatCurrencyVnd } from '@/lib/utils'
 import { Calendar, ChevronLeft, ChevronRight, DollarSign, MapPin, Search as SearchIcon, SlidersHorizontal, X } from 'lucide-react'
 
@@ -26,12 +28,17 @@ export default function Search() {
   const [hasTouchedPriceRange, setHasTouchedPriceRange] = useState(false)
   const [sortBy, setSortBy] = useState<'recommended' | 'date' | 'title'>('recommended')
   const [currentPage, setCurrentPage] = useState(1)
+  const [flashNotice, setFlashNotice] = useState<FlashNotice | null>(null)
   const itemsPerPage = 6
 
   const { events, isLoading, error } = useEvents({
     search: searchQuery || undefined,
     category: selectedCategory === 'all' ? undefined : selectedCategory,
   })
+
+  useEffect(() => {
+    setFlashNotice(flashNoticeStorage.consume())
+  }, [])
 
   useEffect(() => {
     const frameId = window.requestAnimationFrame(() => {
@@ -123,6 +130,16 @@ export default function Search() {
 
   return (
     <div className="min-h-screen text-white">
+      {flashNotice && (
+        <div className="fixed right-4 top-24 z-[100] w-[calc(100vw-2rem)] max-w-sm">
+          <Toast
+            variant={flashNotice.variant ?? 'warning'}
+            title={flashNotice.title}
+            description={flashNotice.description}
+            onClose={() => setFlashNotice(null)}
+          />
+        </div>
+      )}
       <main className="app-theme-page max-w-screen-2xl mx-auto px-6 py-12">
         <div className="mb-16 max-w-3xl mx-auto text-center">
           <h1 className="text-4xl md:text-5xl font-headline font-black tracking-tighter mb-6 customer-text-header">Tìm sự kiện</h1>

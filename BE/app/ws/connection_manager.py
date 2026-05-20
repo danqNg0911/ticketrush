@@ -58,6 +58,23 @@ class SeatWebSocketManager:
                 for user_connections in self._user_connections.values():
                     user_connections.difference_update(dead_connections)
 
+    async def broadcast_show_unpublished(self, show_id: int, payload: dict[str, Any]) -> None:
+        """Thông báo buổi diễn vừa bị rút khỏi public để client rời luồng đặt vé."""
+
+        dead_connections: list[WebSocket] = []
+        for websocket in list(self._rooms.get(show_id, set())):
+            try:
+                await websocket.send_json({"type": "show_unpublished", "show_id": show_id, "payload": payload})
+            except Exception:
+                dead_connections.append(websocket)
+
+        if dead_connections:
+            async with self._lock:
+                for conn in dead_connections:
+                    self._rooms[show_id].discard(conn)
+                for user_connections in self._user_connections.values():
+                    user_connections.difference_update(dead_connections)
+
 
 class AdminWebSocketManager:
     """Broadcast cập nhật dashboard tới các admin đang kết nối."""

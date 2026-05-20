@@ -5,7 +5,7 @@ from sqlalchemy import select
 
 from app.core.db import AsyncSessionLocal
 from app.core.security import TokenDecodeError, decode_access_token
-from app.models.enums import UserRole
+from app.models.enums import EventStatus, UserRole
 from app.models.event import Show
 from app.models.help import HelpThread
 from app.models.user import User
@@ -46,6 +46,9 @@ async def show_seat_ws(websocket: WebSocket, show_id: int, token: str | None = N
 
     if not show:
         await websocket.close(code=1008, reason="Không tìm thấy buổi diễn")
+        return
+    if user.role != UserRole.ADMIN and show.status != EventStatus.LIVE:
+        await websocket.close(code=1008, reason="Buổi diễn đang được cập nhật")
         return
 
     connected = await seat_ws_manager.connect(show.id, user.id, websocket)

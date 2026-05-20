@@ -13,7 +13,7 @@ import { useLockSeats, useReleaseSeats } from '@/features/booking/hooks/useBooki
 import { useShowSeats } from '@/features/events/hooks/useEvents'
 import { useWebSocketHeartbeat } from '@/hooks/useWebSocketHeartbeat'
 import { eventApi, extractApiErrorMessage, seatmapApi } from '@/lib/api'
-import { authStorage, checkoutReturnSeatStorage, queueStorage } from '@/lib/storage'
+import { authStorage, checkoutReturnSeatStorage, flashNoticeStorage, queueStorage } from '@/lib/storage'
 import { formatCurrencyVnd } from '@/lib/utils'
 import type { Seat, SeatMapResponse, SeatMapSeat, SeatZone } from '@/types'
 import { AlertCircle, MapPin, Ticket } from 'lucide-react'
@@ -84,6 +84,7 @@ export default function SeatSelection() {
   const [queueAccessMessage, setQueueAccessMessage] = useState('')
   const canvasRef = useRef<HTMLDivElement>(null)
   const hasAppliedPreselectedSeatsRef = useRef(false)
+  const interruptionRedirectTimerRef = useRef<number | null>(null)
 
   const queueToken = showId ? queueStorage.getToken(showId) : null
   const authToken = authStorage.getToken()
@@ -94,6 +95,38 @@ export default function SeatSelection() {
   useEffect(() => {
     hasAppliedPreselectedSeatsRef.current = false
   }, [location.key, showId])
+
+  useEffect(() => {
+    return () => {
+      if (interruptionRedirectTimerRef.current !== null) {
+        window.clearTimeout(interruptionRedirectTimerRef.current)
+      }
+    }
+  }, [])
+
+  const handleShowInterrupted = useCallback((eventSlug?: string) => {
+    if (!showId || Number.isNaN(showId)) return
+
+    queueStorage.clearToken(showId)
+    checkoutReturnSeatStorage.clear(showId)
+    flashNoticeStorage.set({
+      variant: 'warning',
+      title: 'Show đang được cập nhật',
+      description: 'Phiên đặt vé hiện tại đã kết thúc vì admin đang chỉnh sửa show. Vui lòng chọn show khác hoặc quay lại sau.',
+    })
+    setSelectedSeatIds([])
+    setQueueAccessStatus('blocked')
+    setQueueAccessMessage('Show đang được cập nhật. Phiên đặt vé hiện tại đã kết thúc.')
+    setStatusMessage('Show đang được cập nhật. Hệ thống sẽ đưa bạn về trang sự kiện.')
+
+    if (interruptionRedirectTimerRef.current !== null) {
+      window.clearTimeout(interruptionRedirectTimerRef.current)
+    }
+
+    interruptionRedirectTimerRef.current = window.setTimeout(() => {
+      navigate(eventSlug ? `/event/${eventSlug}` : '/search', { replace: true })
+    }, 1500)
+  }, [navigate, showId])
 
   const refreshSeatMap = useCallback(async () => {
     if (!showId || Number.isNaN(showId)) return
@@ -216,6 +249,12 @@ export default function SeatSelection() {
       window.removeEventListener('mouseup', onUp)
     }
   }, [isPanning, panStartCursor, panStartOffset])
+
+  useEffect(() => {
+    if (error && matrix?.event_slug) {
+      handleShowInterrupted(matrix.event_slug)
+    }
+  }, [error, handleShowInterrupted, matrix?.event_slug])
 
   useEffect(() => {
     if (!matrix) return
@@ -409,15 +448,18 @@ export default function SeatSelection() {
 
   const handleSeatUpdates = useCallback((event: MessageEvent) => {
     try {
-      const message = JSON.parse(event.data) as { type?: string }
+      const message = JSON.parse(event.data) as { type?: string; payload?: { event_slug?: string } }
       if (message.type === 'seat_changes') {
         void refetch(false)
         void refreshSeatMap()
       }
+      if (message.type === 'show_unpublished') {
+        handleShowInterrupted(message.payload?.event_slug ?? matrix?.event_slug)
+      }
     } catch {
       // Bỏ qua gói tin WebSocket không đúng định dạng để luồng cập nhật ghế tiếp tục ổn định.
     }
-  }, [refetch, refreshSeatMap])
+  }, [handleShowInterrupted, matrix?.event_slug, refetch, refreshSeatMap])
 
   useWebSocketHeartbeat({ url: wsUrl, onMessage: handleSeatUpdates })
 

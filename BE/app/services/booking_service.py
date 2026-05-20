@@ -26,7 +26,7 @@ from app.core.cache import (
 )
 from app.core.db import AsyncSessionLocal
 from app.core.search import build_ilike_pattern  # Tự viết: tạo pattern tìm kiếm LIKE không phân biệt hoa thường
-from app.models.enums import OrderStatus, SeatStatus  # Tự viết: enum trạng thái đơn hàng và ghế
+from app.models.enums import EventStatus, OrderStatus, SeatStatus  # Tự viết: enum trạng thái đơn hàng và ghế
 from app.models.event import Event, SeatZone, Show     # Tự viết: ORM models cho sự kiện, vùng ghế, buổi diễn
 from app.models.order import (
     Order,              # Tự viết: ORM model đơn hàng
@@ -91,7 +91,17 @@ async def _get_show_or_404(session: AsyncSession, show_id: int) -> Show:
     # `Show.id` là SQLAlchemy Mapped column (tự định nghĩa trong model)
     # `Show.is_deleted.is_(False)` là SQLAlchemy: kiểm tra cột boolean = False
     # `session.scalar()` là SQLAlchemy AsyncSession: thực thi query, trả về 1 giá trị hoặc None
-    show = await session.scalar(select(Show).where(Show.id == show_id, Show.is_deleted.is_(False)))
+    show = await session.scalar(
+        select(Show)
+        .join(Event, Show.event_id == Event.id)
+        .where(
+            Show.id == show_id,
+            Show.is_deleted.is_(False),
+            Show.status == EventStatus.LIVE,
+            Event.is_deleted.is_(False),
+            Event.status == EventStatus.LIVE,
+        )
+    )
     
     # `HTTPException` là FastAPI (thư viện): tạo response lỗi HTTP
     # `status.HTTP_404_NOT_FOUND` là FastAPI (thư viện): mã trạng thái 404

@@ -4,6 +4,13 @@ const TOKEN_KEY = 'ticketrush_token'
 const USER_KEY = 'ticketrush_user'
 const QUEUE_TOKEN_PREFIX = 'ticketrush_queue_'
 const CHECKOUT_RETURN_SEATS_PREFIX = 'ticketrush_checkout_return_seats_'
+const FLASH_NOTICE_KEY = 'ticketrush_flash_notice'
+
+export interface FlashNotice {
+  variant?: 'default' | 'success' | 'error' | 'warning' | 'info'
+  title: string
+  description?: string
+}
 
 function clearAllQueueTokensFromSessionStorage() {
   const queueKeys: string[] = []
@@ -117,5 +124,31 @@ export const checkoutReturnSeatStorage = {
    */
   clear(showKey: string | number) {
     sessionStorage.removeItem(`${CHECKOUT_RETURN_SEATS_PREFIX}${showKey}`)
+  },
+}
+
+export const flashNoticeStorage = {
+  set(notice: FlashNotice) {
+    sessionStorage.setItem(FLASH_NOTICE_KEY, JSON.stringify(notice))
+  },
+  consume(): FlashNotice | null {
+    const raw = sessionStorage.getItem(FLASH_NOTICE_KEY)
+    sessionStorage.removeItem(FLASH_NOTICE_KEY)
+    if (!raw) return null
+
+    try {
+      const parsed = JSON.parse(raw) as Partial<FlashNotice>
+      if (!parsed.title || typeof parsed.title !== 'string') return null
+      return {
+        variant: parsed.variant,
+        title: parsed.title,
+        description: typeof parsed.description === 'string' ? parsed.description : undefined,
+      }
+    } catch {
+      return null
+    }
+  },
+  clear() {
+    sessionStorage.removeItem(FLASH_NOTICE_KEY)
   },
 }

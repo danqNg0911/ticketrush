@@ -52,7 +52,7 @@ const INITIAL_EVENT_FORM: EventFormState = {
   category: '',
   start_date: '',
   end_date: '',
-  status: 'live',
+  status: 'draft',
   cover_image_url: '',
   image_file: null,
 }
@@ -64,7 +64,7 @@ const INITIAL_SHOW_FORM: ShowFormState = {
   show_date: '',
   start_time: '19:00',
   end_time: '21:00',
-  status: 'live',
+  status: 'draft',
   queue_enabled: true,
   hold_minutes: '10',
   queue_release_batch: '50',
@@ -214,7 +214,22 @@ export default function AdminEvents() {
     }
   }
 
-  async function handleDeleteEvent(eventKey: string) {
+  async function handleDeleteEvent(eventItem: EventCard) {
+    if (eventItem.status !== 'draft') {
+      if (!window.confirm('Sự kiện phải ở trạng thái Draft trước khi xóa. Chuyển sự kiện này về Draft ngay?')) return
+      try {
+        await adminApi.updateEvent(eventItem.slug, { status: 'draft' })
+        await loadEvents()
+        if (activeEvent?.slug === eventItem.slug) {
+          await loadEventDetail(eventItem.slug)
+        }
+      } catch (errorValue) {
+        setError(extractApiErrorMessage(errorValue, 'Không thể chuyển sự kiện về Draft.'))
+      }
+      return
+    }
+
+    const eventKey = eventItem.slug
     if (!window.confirm('Bạn có chắc muốn xóa sự kiện này?')) return
     try {
       await adminApi.deleteEvent(eventKey)
@@ -302,6 +317,18 @@ export default function AdminEvents() {
   async function openEditShowModal(show: ShowSummary) {
     if (!activeEvent) return
 
+    if (show.status !== 'draft') {
+      if (!window.confirm('Show đang Live. Show sẽ được chuyển về Draft trước khi chỉnh sửa. Tiếp tục?')) return
+      try {
+        await adminApi.updateShow(activeEvent.slug, show.id, { status: 'draft' })
+        await loadEventDetail(activeEvent.slug)
+        await loadEvents()
+      } catch (errorValue) {
+        setFormError(extractApiErrorMessage(errorValue, 'Không thể chuyển show về Draft.'))
+        return
+      }
+    }
+
     const detail = await adminApi.getShow(activeEvent.slug, show.id)
 
     setEditingShow(show)
@@ -345,8 +372,37 @@ export default function AdminEvents() {
     setShowModalOpen(true)
   }
 
+  async function openSeatPlanner(show: ShowSummary) {
+    if (!activeEvent) return
+    if (show.status !== 'draft') {
+      if (!window.confirm('Seat Planner là thao tác chỉnh sửa show. Show sẽ được chuyển về Draft trước khi mở planner. Tiếp tục?')) return
+      try {
+        await adminApi.updateShow(activeEvent.slug, show.id, { status: 'draft' })
+        await loadEventDetail(activeEvent.slug)
+        await loadEvents()
+      } catch (errorValue) {
+        setFormError(extractApiErrorMessage(errorValue, 'Không thể chuyển show về Draft.'))
+        return
+      }
+    }
+
+    navigate(`/admin/events/${activeEvent.slug}/shows/${show.id}/seating`)
+  }
+
   async function handleDeleteShow(show: ShowSummary) {
-    if (!activeEvent || !window.confirm(`Xóa show "${show.title}"?`)) return
+    if (!activeEvent) return
+    if (show.status !== 'draft') {
+      if (!window.confirm(`Show "${show.title}" phải ở trạng thái Draft trước khi xóa. Chuyển về Draft ngay?`)) return
+      try {
+        await adminApi.updateShow(activeEvent.slug, show.id, { status: 'draft' })
+        await loadEventDetail(activeEvent.slug)
+        await loadEvents()
+      } catch (errorValue) {
+        setFormError(extractApiErrorMessage(errorValue, 'Không thể chuyển show về Draft.'))
+      }
+      return
+    }
+    if (!window.confirm(`Xóa show "${show.title}"?`)) return
     try {
       await adminApi.deleteShow(activeEvent.slug, show.id)
       await loadEventDetail(activeEvent.slug)
@@ -525,7 +581,7 @@ export default function AdminEvents() {
                   <Button variant="ghost" size="sm" className="text-slate-200 hover:text-slate-500" onClick={() => openEditEventModal(event)}>
                     <Edit className="h-4 w-4" /> Sửa event
                   </Button>
-                  <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300" onClick={() => void handleDeleteEvent(event.slug)}>
+                  <Button variant="ghost" size="sm" className="text-red-400 hover:text-red-300" onClick={() => void handleDeleteEvent(event)}>
                     <Trash2 className="h-4 w-4" /> Xóa
                   </Button>
                 </div>
@@ -658,7 +714,7 @@ export default function AdminEvents() {
                         </div>
 
                         <div className="flex flex-wrap gap-2">
-                          <Button variant="ghost" size="sm" onClick={() => navigate(`/admin/events/${activeEvent.slug}/shows/${show.id}/seating`)}>
+                          <Button variant="ghost" size="sm" onClick={() => void openSeatPlanner(show)}>
                             Seat Planner
                           </Button>
                           <Button variant="ghost" size="sm" onClick={() => void openEditShowModal(show)}>
