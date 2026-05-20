@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { Activity, BarChart3, CalendarDays, DollarSign, RefreshCcw, Ticket, Users } from 'lucide-react'
 
@@ -6,8 +6,11 @@ import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/Card'
 import { GlobalLoader } from '@/components/ui/GlobalLoader'
+import { useWebSocketHeartbeat } from '@/hooks/useWebSocketHeartbeat'
+import { WS_BASE_URL } from '@/constants'
 import { adminApi, extractApiErrorMessage } from '@/lib/api'
-import type { DashboardSummary, OccupancyItem, RevenuePoint } from '@/types'
+import { authStorage } from '@/lib/storage'
+import type { DashboardRealtimePayload, DashboardSummary, OccupancyItem, RevenuePoint } from '@/types'
 
 const DEFAULT_SUMMARY: DashboardSummary = {
   total_revenue: 0,
@@ -31,6 +34,10 @@ export default function AdminDashboard() {
   const [loading, setLoading] = useState(true)
   const [refreshing, setRefreshing] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  const [realtimeStatus, setRealtimeStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting')
+
+  const authToken = authStorage.getToken()
+  const dashboardWsUrl = authToken ? `${WS_BASE_URL}/admin/dashboard?token=${encodeURIComponent(authToken)}` : null
 
   const maxRevenue = useMemo(
     () => revenue.reduce((max, point) => (point.revenue > max ? point.revenue : max), 0),
@@ -66,6 +73,27 @@ export default function AdminDashboard() {
     void loadDashboardData()
   }, [])
 
+  const handleDashboardUpdate = useCallback((event: MessageEvent) => {
+    try {
+      const message = JSON.parse(event.data) as { type?: string; payload?: Partial<DashboardRealtimePayload> }
+      if (message.type !== 'dashboard_update' || !message.payload) return
+
+      if (message.payload.summary) setSummary(message.payload.summary)
+      if (Array.isArray(message.payload.revenue)) setRevenue(message.payload.revenue)
+      if (Array.isArray(message.payload.occupancy)) setOccupancy(message.payload.occupancy)
+      setError(null)
+    } catch {
+      // Bỏ qua gói tin WebSocket không đúng định dạng để dashboard tiếp tục nhận lần cập nhật tiếp theo.
+    }
+  }, [])
+
+  useWebSocketHeartbeat({
+    url: dashboardWsUrl,
+    onMessage: handleDashboardUpdate,
+    onOpen: () => setRealtimeStatus('connected'),
+    onClose: () => setRealtimeStatus('disconnected'),
+  })
+
   if (loading) {
     return <GlobalLoader />
   }
@@ -75,12 +103,17 @@ export default function AdminDashboard() {
       <div className="flex items-start justify-between gap-3">
         <div>
           <h2 className="text-2xl font-display font-bold admin-text-header">Tổng quan hệ thống</h2>
-          <p className="admin-text-body mt-1">Dữ liệu realtime từ backend admin</p>
+          <p className="admin-text-body mt-1">Dashboard realtime từ backend admin</p>
         </div>
-        <Button variant="outline" onClick={() => void loadDashboardData(true)} isLoading={refreshing}>
-          <RefreshCcw className="h-4 w-4" />
-          Làm mới
-        </Button>
+        <div className="flex items-center gap-2">
+          <Badge variant={realtimeStatus === 'connected' ? 'success' : 'warning'} size="sm">
+            {realtimeStatus === 'connected' ? 'Realtime đang bật' : realtimeStatus === 'connecting' ? 'Đang kết nối' : 'Mất realtime'}
+          </Badge>
+          <Button variant="outline" onClick={() => void loadDashboardData(true)} isLoading={refreshing}>
+            <RefreshCcw className="h-4 w-4" />
+            Làm mới
+          </Button>
+        </div>
       </div>
 
       {error && (
@@ -215,7 +248,7 @@ export default function AdminDashboard() {
 
       <div className="text-xs text-gray-500 flex items-center gap-2">
         <CalendarDays className="h-4 w-4" />
-        Dữ liệu được tải lúc mở trang và khi bấm Làm mới.
+        Dữ liệu tự cập nhật khi backend phát sinh thay đổi; nút Làm mới dùng làm fallback.
       </div>
     </div>
   )

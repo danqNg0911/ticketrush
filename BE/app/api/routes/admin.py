@@ -58,7 +58,13 @@ from app.schemas.event import (
     ShowSummaryResponse,
     ShowUpdateRequest,
 )
-from app.services.dashboard_service import get_audience_distribution, get_dashboard_summary, get_revenue_series
+from app.services.dashboard_service import (
+    broadcast_dashboard_update,
+    get_audience_distribution,
+    get_dashboard_occupancy,
+    get_dashboard_summary,
+    get_revenue_series,
+)
 from app.services.event_service import (
     build_event_card_response,
     build_event_detail_response,
@@ -254,6 +260,7 @@ async def create_admin_event(
 
     await public_api_cache.invalidate_namespace(EVENT_LIST_CACHE_NAMESPACE)
     await public_api_cache.invalidate_namespace(EVENT_DETAIL_CACHE_NAMESPACE)
+    await broadcast_dashboard_update()
     return await build_event_detail_response(session, event)
 
 
@@ -327,6 +334,7 @@ async def update_event(
 
     await public_api_cache.invalidate_namespace(EVENT_LIST_CACHE_NAMESPACE)
     await public_api_cache.invalidate_namespace(EVENT_DETAIL_CACHE_NAMESPACE)
+    await broadcast_dashboard_update()
     return await build_event_detail_response(session, event)
 
 
@@ -354,6 +362,7 @@ async def delete_event(
     await public_api_cache.invalidate_namespace(EVENT_DETAIL_CACHE_NAMESPACE)
     for show in shows:
         await public_api_cache.invalidate_namespace(show_seat_cache_namespace(show.id))
+    await broadcast_dashboard_update()
     return APIMessage(detail="Đã xóa sự kiện thành công")
 
 
@@ -389,6 +398,7 @@ async def create_admin_show(
         raise
 
     await _invalidate_show_cache(show.id)
+    await broadcast_dashboard_update()
     return ShowDetailResponse(**(await build_show_detail_response(session, show)))
 
 
@@ -447,6 +457,7 @@ async def update_admin_show(
         raise
 
     await _invalidate_show_cache(show.id)
+    await broadcast_dashboard_update()
     return ShowDetailResponse(**(await build_show_detail_response(session, show)))
 
 
@@ -468,6 +479,7 @@ async def delete_admin_show(
         raise
 
     await _invalidate_show_cache(show.id)
+    await broadcast_dashboard_update()
     return APIMessage(detail="Đã xóa buổi diễn thành công")
 
 
@@ -517,6 +529,7 @@ async def create_zone(
         raise
 
     await _invalidate_show_cache(show.id)
+    await broadcast_dashboard_update()
     return SeatZoneResponse.model_validate(zone)
 
 
@@ -539,6 +552,7 @@ async def create_initial_zone(
         raise
 
     await _invalidate_show_cache(show.id)
+    await broadcast_dashboard_update()
     return SeatZoneResponse.model_validate(zone)
 
 
@@ -562,6 +576,7 @@ async def update_zone(
         raise
 
     await _invalidate_show_cache(show.id)
+    await broadcast_dashboard_update()
     return SeatZoneResponse.model_validate(zone)
 
 
@@ -584,6 +599,7 @@ async def delete_zone(
         raise
 
     await _invalidate_show_cache(show.id)
+    await broadcast_dashboard_update()
     return APIMessage(detail="Đã xóa khu vực ghế thành công")
 
 
@@ -722,6 +738,7 @@ async def create_show_seat_single(
         raise
 
     await _invalidate_show_cache(show.id)
+    await broadcast_dashboard_update()
     return SeatCreateResponse(id=seat.id, seat_label=seat.seat_label, x=float(seat.x_coord) if seat.x_coord is not None else None, y=float(seat.y_coord) if seat.y_coord is not None else None)
 
 
@@ -833,6 +850,7 @@ async def create_show_seat_bulk(
             created.append(SeatCreateResponse(id=seat.id, seat_label=seat.seat_label, x=float(seat.x_coord) if seat.x_coord is not None else None, y=float(seat.y_coord) if seat.y_coord is not None else None))
 
     await _invalidate_show_cache(show.id)
+    await broadcast_dashboard_update()
     return SeatBulkCreateResponse(created_count=len(created), seats=created)
 
 
@@ -981,6 +999,7 @@ async def sync_show_seats(
         raise
 
     await _invalidate_show_cache(show.id)
+    await broadcast_dashboard_update()
     return response
 
 
@@ -1041,6 +1060,7 @@ async def update_show_seat(
         raise
 
     await _invalidate_show_cache(show.id)
+    await broadcast_dashboard_update()
     return SeatCreateResponse(id=seat.id, seat_label=seat.seat_label, x=float(seat.x_coord) if seat.x_coord is not None else None, y=float(seat.y_coord) if seat.y_coord is not None else None)
 
 
@@ -1067,6 +1087,7 @@ async def delete_show_seat(
         raise
 
     await _invalidate_show_cache(show.id)
+    await broadcast_dashboard_update()
     return APIMessage(detail="Đã xóa ghế thành công")
 
 
@@ -1299,41 +1320,4 @@ async def dashboard_occupancy(
 ) -> list[EventOccupancyResponse]:
     """Trả snapshot lấp đầy ghế của từng buổi diễn."""
 
-    stmt = (
-        select(
-            Event.id.label("event_id"),
-            Event.title.label("event_title"),
-            Show.id.label("show_id"),
-            Show.title.label("show_title"),
-            func.count(Seat.id).label("total_seats"),
-            func.sum(case((Seat.status == SeatStatus.SOLD, 1), else_=0)).label("sold_seats"),
-            func.sum(case((Seat.status == SeatStatus.LOCKED, 1), else_=0)).label("locked_seats"),
-        )
-        .join(Show, Show.event_id == Event.id)
-        .outerjoin(Seat, Seat.show_id == Show.id)
-        .where(Event.is_deleted.is_(False), Show.is_deleted.is_(False))
-        .group_by(Event.id, Event.title, Show.id, Show.title)
-        .order_by(Show.start_at.asc())
-    )
-    rows = (await session.execute(stmt)).all()
-
-    result: list[EventOccupancyResponse] = []
-    for row in rows:
-        total = int(row.total_seats or 0)
-        sold = int(row.sold_seats or 0)
-        locked = int(row.locked_seats or 0)
-        occupancy = round((sold / total) * 100, 2) if total else 0
-        result.append(
-            EventOccupancyResponse(
-                event_id=row.event_id,
-                event_title=row.event_title,
-                show_id=row.show_id,
-                show_title=row.show_title,
-                total_seats=total,
-                sold_seats=sold,
-                locked_seats=locked,
-                occupancy_rate=occupancy,
-            )
-        )
-
-    return result
+    return await get_dashboard_occupancy(session)

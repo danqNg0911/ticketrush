@@ -9,7 +9,7 @@ from app.models.enums import UserRole
 from app.models.event import Show
 from app.models.help import HelpThread
 from app.models.user import User
-from app.services.dashboard_service import get_dashboard_summary
+from app.services.dashboard_service import get_dashboard_stream
 from app.ws.connection_manager import admin_ws_manager, help_ws_manager, seat_ws_manager
 
 router = APIRouter(tags=["websocket"])
@@ -79,8 +79,8 @@ async def admin_dashboard_ws(websocket: WebSocket, token: str | None = None) -> 
 
     try:
         async with AsyncSessionLocal() as session:
-            summary = await get_dashboard_summary(session)
-            await websocket.send_json({"type": "dashboard_update", "payload": summary.model_dump()})
+            payload = await get_dashboard_stream(session)
+            await websocket.send_json({"type": "dashboard_update", "payload": payload.model_dump()})
 
         while True:
             await websocket.receive_text()
