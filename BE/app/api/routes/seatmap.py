@@ -24,6 +24,7 @@ from app.schemas.event import SeatMatrixResponse
 from app.schemas.seatmap import SeatMapResponse, SeatMapSectionResponse
 from app.services.event_service import get_show_by_id, get_show_seat_matrix
 from app.services.inventory_service import get_seatmap
+from app.services.queue_service import is_show_queue_required
 
 # Prefix `/shows` tạo các URL như `/api/shows/{show_id}/seats`.
 router = APIRouter(prefix="/shows", tags=["seatmap"])
@@ -77,6 +78,10 @@ async def show_seat_matrix(
         current_user_id=current_user.id if current_user else None,
         include_user_details=bool(current_user and getattr(current_user.role, "value", str(current_user.role)) == "admin"),
     )
+    queue_required = False
+    if current_user is not None:
+        queue_required = await is_show_queue_required(session, show, current_user.id)
+
     # Event cha dùng để frontend quay lại trang chi tiết sự kiện bằng slug.
     response = SeatMatrixResponse(
         show_id=show.id,
@@ -85,6 +90,7 @@ async def show_seat_matrix(
         event_slug=event.slug if event else "",
         event_title=event.title if event else show.title,
         queue_enabled=show.queue_enabled,
+        queue_required=queue_required,
         zones=zones,
         seats=seats,
     )
@@ -121,6 +127,10 @@ async def show_seatmap(
         if cached is not None:
             return cached
 
+    queue_required = False
+    if current_user is not None:
+        queue_required = await is_show_queue_required(session, show, current_user.id)
+
     response = SeatMapResponse.model_validate(
         await get_seatmap(
             session,
@@ -128,6 +138,7 @@ async def show_seatmap(
             current_user_id=current_user.id if current_user else None,
         )
     )
+    response.queue_required = queue_required
     if current_user is None:
         # TTL ngắn để người xem đông không dồn toàn bộ request vào DB nhưng vẫn thấy trạng thái gần realtime.
         return await public_api_cache.set(show_seat_cache_namespace(show.id), "seatmap_anonymous", response, ttl_seconds=10)

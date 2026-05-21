@@ -51,7 +51,10 @@ class Settings(BaseSettings):
 
     hold_minutes_default: int = 10
     queue_batch_size_default: int = 50
+    queue_active_threshold_default: int = 2
+    queue_max_active_tokens_default: int = 200
     queue_admit_ttl_minutes: int = 15
+    queue_active_user_ttl_seconds: int = 60
     redis_url: str | None = Field(default=None, validation_alias="REDIS_URL")
     redis_host: str = Field(default="127.0.0.1", validation_alias="REDIS_HOST")
     redis_port: int = Field(default=6380, validation_alias="REDIS_PORT")
