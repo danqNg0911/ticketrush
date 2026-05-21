@@ -41,7 +41,7 @@ class EventCreateRequest(BaseModel):
     start_date: date
     end_date: date
     cover_image_url: str = ""
-    status: EventStatus = EventStatus.LIVE
+    status: EventStatus = EventStatus.DRAFT
 
     @model_validator(mode="after")
     def validate_range(self) -> "EventCreateRequest":
@@ -71,7 +71,7 @@ class ShowCreateRequest(BaseModel):
     show_date: date
     start_time: time
     end_time: time
-    status: EventStatus = EventStatus.LIVE
+    status: EventStatus = EventStatus.DRAFT
     hold_minutes: int = Field(default=10, ge=1, le=60)
     queue_enabled: bool = True
     queue_release_batch: int = Field(default=50, ge=1, le=500)

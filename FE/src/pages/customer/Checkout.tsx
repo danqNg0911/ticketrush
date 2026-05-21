@@ -5,10 +5,12 @@ import axios from 'axios'
 import { useAuth } from '@/context/AuthContext'
 import { Button } from '@/components/ui/Button'
 import { Input } from '@/components/ui/Input'
+import { WS_BASE_URL } from '@/constants'
 import { useCheckout, useReleaseSeats } from '@/features/booking/hooks/useBooking'
 import { useShowSeats } from '@/features/events/hooks/useEvents'
+import { useWebSocketHeartbeat } from '@/hooks/useWebSocketHeartbeat'
 import { bookingApi, eventApi, extractApiErrorMessage, postAuthorizedJsonKeepalive } from '@/lib/api'
-import { checkoutReturnSeatStorage, queueStorage } from '@/lib/storage'
+import { authStorage, checkoutReturnSeatStorage, flashNoticeStorage, queueStorage } from '@/lib/storage'
 import { formatCurrencyVnd } from '@/lib/utils'
 import type { Seat } from '@/types'
 import { AlertCircle, CreditCard, MapPin, QrCode, Rocket, Timer } from 'lucide-react'
@@ -25,6 +27,10 @@ function isRecoverableQueueTokenError(error: unknown): boolean {
 
   const statusCode = error.response?.status
   return statusCode === 403 || statusCode === 404 || statusCode === 410 || statusCode === 429
+}
+
+function isShowUnavailableError(error: unknown): boolean {
+  return axios.isAxiosError(error) && error.response?.status === 404
 }
 
 export default function Checkout() {
@@ -50,13 +56,16 @@ export default function Checkout() {
 
   const stateLockedSeats = useMemo(() => state.lockedSeats ?? [], [state.lockedSeats])
   const shouldFetchMatrix = !stateLockedSeats.length
-  const { seats: matrix } = useShowSeats(shouldFetchMatrix ? showId : undefined)
+  const { seats: matrix, error: matrixError } = useShowSeats(shouldFetchMatrix ? showId : undefined)
   const checkoutCompletedRef = useRef(false)
   const locksReleasedRef = useRef(false)
   const latestShowIdRef = useRef<number | null>(null)
   const latestLockedSeatIdsRef = useRef<number[]>([])
   const pendingReleaseTimerRef = useRef<number | null>(null)
   const keepSeatSelectionForBackButtonRef = useRef(false)
+  const interruptionRedirectTimerRef = useRef<number | null>(null)
+  const authToken = authStorage.getToken()
+  const wsUrl = showId && authToken ? `${WS_BASE_URL}/shows/${showId}/seats?token=${encodeURIComponent(authToken)}` : null
 
   const lockedSeats = useMemo(() => {
     if (stateLockedSeats.length > 0) {
@@ -106,6 +115,57 @@ export default function Checkout() {
     latestShowIdRef.current = Number.isNaN(showId) ? null : showId
     latestLockedSeatIdsRef.current = lockedSeatIds
   }, [showId, lockedSeatIds])
+
+  useEffect(() => {
+    return () => {
+      if (interruptionRedirectTimerRef.current !== null) {
+        window.clearTimeout(interruptionRedirectTimerRef.current)
+      }
+    }
+  }, [])
+
+  const handleShowInterrupted = useCallback((eventSlug?: string) => {
+    if (!showId || Number.isNaN(showId)) return
+
+    queueStorage.clearToken(showId)
+    checkoutReturnSeatStorage.clear(showId)
+    flashNoticeStorage.set({
+      variant: 'warning',
+      title: 'Show đang được cập nhật',
+      description: 'Phiên thanh toán hiện tại đã kết thúc vì admin đang chỉnh sửa show. Vui lòng chọn show khác hoặc quay lại sau.',
+    })
+    checkoutCompletedRef.current = false
+    locksReleasedRef.current = true
+    latestLockedSeatIdsRef.current = []
+    setErrorMessage('Show đang được cập nhật. Phiên thanh toán hiện tại đã kết thúc.')
+
+    if (interruptionRedirectTimerRef.current !== null) {
+      window.clearTimeout(interruptionRedirectTimerRef.current)
+    }
+
+    interruptionRedirectTimerRef.current = window.setTimeout(() => {
+      navigate(eventSlug ? `/event/${eventSlug}` : '/search', { replace: true })
+    }, 1500)
+  }, [navigate, showId])
+
+  useEffect(() => {
+    if (matrixError) {
+      handleShowInterrupted(eventKey ?? matrix?.event_slug)
+    }
+  }, [eventKey, handleShowInterrupted, matrix?.event_slug, matrixError])
+
+  const handleShowSocketMessage = useCallback((event: MessageEvent) => {
+    try {
+      const message = JSON.parse(event.data) as { type?: string; payload?: { event_slug?: string } }
+      if (message.type === 'show_unpublished') {
+        handleShowInterrupted(message.payload?.event_slug ?? eventKey ?? matrix?.event_slug)
+      }
+    } catch {
+      // Bỏ qua gói tin WebSocket không đúng định dạng.
+    }
+  }, [eventKey, handleShowInterrupted, matrix?.event_slug])
+
+  useWebSocketHeartbeat({ url: wsUrl, onMessage: handleShowSocketMessage })
 
   const releaseLockedSeatsInBackground = useCallback(() => {
     /**
@@ -303,6 +363,11 @@ export default function Checkout() {
         },
       })
     } catch (error) {
+      if (isShowUnavailableError(error)) {
+        handleShowInterrupted(eventKey ?? matrix?.event_slug)
+        return
+      }
+
       if (showId && !Number.isNaN(showId) && isRecoverableQueueTokenError(error)) {
         queueStorage.clearToken(showId)
         setErrorMessage('Phiên hàng đợi không còn hợp lệ. Vui lòng quay lại hàng đợi để nhận lượt mới.')

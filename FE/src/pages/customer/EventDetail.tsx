@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState, type ComponentProps } from 'react'
 import { Link, useNavigate, useParams } from 'react-router-dom'
 
 import { Badge } from '@/components/ui/Badge'
 import { Button } from '@/components/ui/Button'
 import { GlobalLoader } from '@/components/ui/GlobalLoader'
+import { Toast } from '@/components/ui/Toast'
 import { eventsApi } from '@/features/events/api/eventsApi'
 import { useEventDetail } from '@/features/events/hooks/useEvents'
 import { useAuth } from '@/context/AuthContext'
@@ -11,6 +12,7 @@ import type { EventReview, EventStatus } from '@/types'
 import { Calendar, Clock, MapPin, Star, Users } from 'lucide-react'
 import { Heart } from 'lucide-react'
 import { isFavourite, toggleFavourite } from '@/lib/favourites'
+import { flashNoticeStorage, type FlashNotice } from '@/lib/storage'
 
 const FALLBACK_IMAGE =
   'https://images.unsplash.com/photo-1514525253161-7a46d19cd819?auto=format&fit=crop&w=1200&q=80'
@@ -27,14 +29,25 @@ function formatDate(date: string) {
 }
 
 function statusBadge(status: EventStatus) {
-  const variants: Record<EventStatus, { text: string; className: string }> = {
-    draft: { text: 'Draft', className: 'bg-gray-500/50 text-white' },
-    live: { text: 'Live', className: 'bg-green-500/50 text-white' },
-    closed: { text: 'Closed', className: 'bg-red-500/50 text-white' },
+  const variants: Record<EventStatus, { text: string; variant: ComponentProps<typeof Badge>['variant'] }> = {
+    draft: { text: 'Draft', variant: 'default' },
+    live: { text: 'Live', variant: 'success' },
+    closed: { text: 'Closed', variant: 'danger' },
   }
 
   const variant = variants[status]
-  return <Badge className={variant.className}>{variant.text}</Badge>
+  return <Badge variant={variant.variant}>{variant.text}</Badge>
+}
+
+function showStatusBadge(show: { status: EventStatus; end_at: string }) {
+  if (new Date(show.end_at).getTime() <= Date.now()) {
+    return <Badge variant="danger">End</Badge>
+  }
+  return statusBadge(show.status)
+}
+
+function canBookShow(show: { status: EventStatus; end_at: string }) {
+  return show.status === 'live' && new Date(show.end_at).getTime() > Date.now()
 }
 
 export default function EventDetail() {
@@ -54,6 +67,11 @@ export default function EventDetail() {
   const [submitting, setSubmitting] = useState(false)
   const [fav, setFav] = useState(false)
   const [hasLoadedReviews, setHasLoadedReviews] = useState(false)
+  const [flashNotice, setFlashNotice] = useState<FlashNotice | null>(null)
+
+  useEffect(() => {
+    setFlashNotice(flashNoticeStorage.consume())
+  }, [eventKey])
 
   useEffect(() => {
     setReviews([])
@@ -141,9 +159,21 @@ export default function EventDetail() {
     return <GlobalLoader />
   }
 
+  const flashNoticeNode = flashNotice ? (
+    <div className="fixed right-4 top-24 z-[100] w-[calc(100vw-2rem)] max-w-sm">
+      <Toast
+        variant={flashNotice.variant ?? 'warning'}
+        title={flashNotice.title}
+        description={flashNotice.description}
+        onClose={() => setFlashNotice(null)}
+      />
+    </div>
+  ) : null
+
   if (error || !event) {
     return (
       <div className="min-h-screen text-white">
+        {flashNoticeNode}
         <main className="max-w-7xl mx-auto px-4 py-24 text-center">
           <h1 className="text-3xl font-bold mb-3">Không tìm thấy sự kiện</h1>
           <p className="text-slate-400 mb-6">{error ?? 'Sự kiện này không tồn tại hoặc đang tạm ẩn.'}</p>
@@ -157,6 +187,7 @@ export default function EventDetail() {
 
   return (
     <div className="min-h-screen text-white">
+      {flashNoticeNode}
       <section className="relative h-[340px] md:h-[420px] overflow-hidden">
         <img src={event.cover_image_url || FALLBACK_IMAGE} alt={event.title} className="absolute inset-0 w-full h-full object-cover" />
         <div className="absolute inset-0 bg-gradient-to-r from-black/90 via-black/60 to-black/40" />
@@ -220,24 +251,30 @@ export default function EventDetail() {
                   <p className="text-sm text-gray-500">Sự kiện này chưa có show mở bán.</p>
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                    {event.shows.map((show) => (
-                      <div key={show.id} className="rounded-lg customer-bg-page border border-white/10 p-4">
-                        <div className="flex items-start justify-between gap-3 mb-2">
-                          <div>
-                            <p className="font-semibold customer-text-body">{show.title}</p>
-                            <p className="text-xs text-gray-500 mt-1">{show.description}</p>
+                    {event.shows.map((show) => {
+                      const isBookable = canBookShow(show)
+
+                      return (
+                        <div key={show.id} className="rounded-lg customer-bg-page border border-white/10 p-4">
+                          <div className="flex items-start justify-between gap-3 mb-2">
+                            <div>
+                              <p className="font-semibold customer-text-body">{show.title}</p>
+                              <p className="text-xs text-gray-500 mt-1">{show.description}</p>
+                            </div>
+                            {showStatusBadge(show)}
                           </div>
-                          {statusBadge(show.status)}
+                          <div className="text-sm text-gray-600 space-y-1">
+                            <p>{new Date(show.start_at).toLocaleString('vi-VN')}</p>
+                            <p>{show.venue}</p>
+                          </div>
+                          {isBookable && (
+                            <Link to={`/shows/${show.id}/seats`} className="mt-4 inline-block ">
+                              <Button className='bg-[var(--customer-bg-opt)] hover:bg-[var(--customer-bg-opt)]/50'>Đặt vé</Button>
+                            </Link>
+                          )}
                         </div>
-                        <div className="text-sm text-gray-600 space-y-1">
-                          <p>{new Date(show.start_at).toLocaleString('vi-VN')}</p>
-                          <p>{show.venue}</p>
-                        </div>
-                        <Link to={`/shows/${show.id}/seats`} className="mt-4 inline-block ">
-                          <Button className='bg-[var(--customer-bg-opt)] hover:bg-[var(--customer-bg-opt)]/50'>Đặt vé</Button>
-                        </Link>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 )}
               </div>

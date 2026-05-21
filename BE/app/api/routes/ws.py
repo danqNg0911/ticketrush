@@ -5,11 +5,11 @@ from sqlalchemy import select
 
 from app.core.db import AsyncSessionLocal
 from app.core.security import TokenDecodeError, decode_access_token
-from app.models.enums import UserRole
+from app.models.enums import EventStatus, UserRole
 from app.models.event import Show
 from app.models.help import HelpThread
 from app.models.user import User
-from app.services.dashboard_service import get_dashboard_summary
+from app.services.dashboard_service import get_dashboard_stream
 from app.ws.connection_manager import admin_ws_manager, help_ws_manager, seat_ws_manager
 
 router = APIRouter(tags=["websocket"])
@@ -47,6 +47,9 @@ async def show_seat_ws(websocket: WebSocket, show_id: int, token: str | None = N
     if not show:
         await websocket.close(code=1008, reason="Không tìm thấy buổi diễn")
         return
+    if user.role != UserRole.ADMIN and show.status != EventStatus.LIVE:
+        await websocket.close(code=1008, reason="Buổi diễn đang được cập nhật")
+        return
 
     connected = await seat_ws_manager.connect(show.id, user.id, websocket)
     if not connected:
@@ -79,8 +82,8 @@ async def admin_dashboard_ws(websocket: WebSocket, token: str | None = None) -> 
 
     try:
         async with AsyncSessionLocal() as session:
-            summary = await get_dashboard_summary(session)
-            await websocket.send_json({"type": "dashboard_update", "payload": summary.model_dump()})
+            payload = await get_dashboard_stream(session)
+            await websocket.send_json({"type": "dashboard_update", "payload": payload.model_dump()})
 
         while True:
             await websocket.receive_text()

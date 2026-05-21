@@ -6,7 +6,7 @@ Ghi chú:
 """
 
 # FastAPI dùng `APIRouter` để gom route và `Depends` để inject dependency.
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException, status
 
 # SQLAlchemy dùng `select` để tạo câu SQL đọc section/venue layout.
 from sqlalchemy import select
@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.api.deps import get_optional_current_user
 from app.core.cache import public_api_cache, show_seat_cache_namespace
 from app.core.db import get_db_session
+from app.models.enums import EventStatus
 from app.models.event import Event
 from app.models.user import User
 from app.models.venue import Section
@@ -26,6 +27,18 @@ from app.services.inventory_service import get_seatmap
 
 # Prefix `/shows` tạo các URL như `/api/shows/{show_id}/seats`.
 router = APIRouter(prefix="/shows", tags=["seatmap"])
+
+
+def _is_admin(user: User | None) -> bool:
+    return bool(user and getattr(user.role, "value", str(user.role)) == "admin")
+
+
+async def _ensure_show_visible_to_user(session: AsyncSession, show_id: int, current_user: User | None):
+    show = await get_show_by_id(session, show_id)
+    event = await session.get(Event, show.event_id)
+    if not _is_admin(current_user) and (show.status != EventStatus.LIVE or not event or event.status != EventStatus.LIVE):
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy buổi diễn")
+    return show, event
 
 
 @router.get("/{show_id}/seats", response_model=SeatMatrixResponse)
@@ -50,7 +63,7 @@ async def show_seat_matrix(
     """
 
     # Lấy show trước để xác thực `show_id` tồn tại và lấy event_id/queue_enabled.
-    show = await get_show_by_id(session, show_id)
+    show, event = await _ensure_show_visible_to_user(session, show_id, current_user)
     if current_user is None:
         # Guest không có thông tin cá nhân hóa nên có thể dùng cache public.
         cached = await public_api_cache.get(show_seat_cache_namespace(show.id), "anonymous")
@@ -65,7 +78,6 @@ async def show_seat_matrix(
         include_user_details=bool(current_user and getattr(current_user.role, "value", str(current_user.role)) == "admin"),
     )
     # Event cha dùng để frontend quay lại trang chi tiết sự kiện bằng slug.
-    event = await session.get(Event, show.event_id)
     response = SeatMatrixResponse(
         show_id=show.id,
         show_title=show.title,
@@ -103,7 +115,7 @@ async def show_seatmap(
     - Cache guest 10 giây vì seat map có trạng thái lock cần cập nhật nhanh hơn matrix.
     """
 
-    show = await get_show_by_id(session, show_id)
+    show, _ = await _ensure_show_visible_to_user(session, show_id, current_user)
     if current_user is None:
         cached = await public_api_cache.get(show_seat_cache_namespace(show.id), "seatmap_anonymous")
         if cached is not None:
@@ -140,7 +152,7 @@ async def show_sections(
     - Show sinh ghế theo zone cổ điển trả danh sách rỗng.
     """
 
-    show = await get_show_by_id(session, show_id)
+    show, _ = await _ensure_show_visible_to_user(session, show_id, None)
     if not show.venue_layout_id:
         return []
 

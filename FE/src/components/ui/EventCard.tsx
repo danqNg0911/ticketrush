@@ -8,6 +8,7 @@ export interface EventCardProps extends Omit<HTMLAttributes<HTMLAnchorElement>, 
   image: string;
   title: string;
   date: string;
+  endDate?: string;
   venue: string;
   price: string;
   badge?: string;
@@ -15,7 +16,14 @@ export interface EventCardProps extends Omit<HTMLAttributes<HTMLAnchorElement>, 
 }
 
 export const EventCard = forwardRef<HTMLAnchorElement, EventCardProps>(
-  ({ className, variant = 'default', image, title, date, venue, price, badge, href, ...props }, ref) => {
+  ({ className, variant = 'default', image, title, date, endDate, venue, price, badge, href, ...props }, ref) => {
+    const startDate = new Date(date)
+    const dateBadgeDay = Number.isNaN(startDate.getTime())
+      ? '--'
+      : startDate.toLocaleDateString('vi-VN', { day: '2-digit' })
+    const dateBadgeMonth = Number.isNaN(startDate.getTime())
+      ? ''
+      : startDate.toLocaleDateString('vi-VN', { month: 'short' })
     if (variant === 'featured') {
       return (
         <Link to={href || '#'} className={cn('group relative h-80 rounded-xl overflow-hidden glass-panel border-none block', className)}>
@@ -72,8 +80,8 @@ export const EventCard = forwardRef<HTMLAnchorElement, EventCardProps>(
             src={image}
           />
           <div className="absolute top-3 right-3 bg-slate-900/80 backdrop-blur-md p-2 rounded-lg text-center min-w-[50px]">
-            <p className="text-primary font-headline font-black text-lg leading-none">{date.split(' ')[0]}</p>
-            <p className="text-[10px] uppercase font-headline font-bold text-slate-400">{date.split(' ')[1]}</p>
+            <p className="text-primary font-headline font-black text-lg leading-none">{dateBadgeDay}</p>
+            <p className="text-[10px] uppercase font-headline font-bold text-slate-400">{dateBadgeMonth}</p>
           </div>
         </div>
         <div className="p-5">

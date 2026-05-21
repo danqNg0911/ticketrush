@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type MouseEvent, type WheelEvent } from 'react'
+import { useEffect, useMemo, useRef, useState, type MouseEvent } from 'react'
 import { Building2, Check, Copy, Edit, FileUp, Hand, Layers3, MapPin, MousePointer2, Plus, Redo2, RefreshCw, Save, Shapes, Trash2, Undo2 } from 'lucide-react'
 
 import { Button } from '@/components/ui/Button'
@@ -408,11 +408,14 @@ export default function AdminVenues() {
             setVenuePolygons([])
             return
         }
+        if (!selectedVenueId) return
+
+        const activeLayout = layouts.find((layout) => layout.id === selectedLayoutId)
+        if (!activeLayout || activeLayout.venue_id !== selectedVenueId) return
 
         let active = true
         void (async () => {
             try {
-                if (!selectedVenueId) return
                 const [list, seats, polygons] = await Promise.all([
                     adminApi.listLayoutSections(selectedLayoutId),
                     adminApi.listVenueSeats(selectedVenueId, selectedLayoutId),
@@ -438,7 +441,7 @@ export default function AdminVenues() {
         return () => {
             active = false
         }
-    }, [selectedLayoutId, selectedVenueId])
+    }, [layouts, selectedLayoutId, selectedVenueId])
 
     useEffect(() => {
         if (backgroundViewMode === 'processed' && !selectedVenue?.background_processed) {
@@ -776,6 +779,32 @@ export default function AdminVenues() {
         }
     }
 
+    async function handleDeleteVenue(venueId: number) {
+        if (!window.confirm('Bạn có chắc muốn xóa địa điểm này? Hành động này không thể hoàn tác.')) return
+        setBusy(true)
+        setError(null)
+        setMessage(null)
+        try {
+            await adminApi.deleteVenue(venueId)
+            setMessage('Đã xóa địa điểm.')
+            const nextId = venues.find((v) => v.id !== venueId)?.id ?? null
+            await loadVenues(nextId)
+            if (selectedVenueId === venueId) {
+                setSelectedVenue(null)
+                setSelectedVenueId(null)
+                setLayouts([])
+                setSections([])
+                setVenueSeats([])
+                setVenuePolygons([])
+                setStudioStep('venue')
+            }
+        } catch (errorValue) {
+            setError(extractApiErrorMessage(errorValue, 'Không thể xóa địa điểm.'))
+        } finally {
+            setBusy(false)
+        }
+    }
+
     async function handleUploadBackground(fileOverride?: File) {
         const file = fileOverride ?? backgroundFile
         if (!selectedVenueId || !file) return
@@ -1091,7 +1120,7 @@ export default function AdminVenues() {
         setPanStartOffset({ x: viewport.offsetX, y: viewport.offsetY })
     }
 
-    function handleCanvasWheel(event: WheelEvent<HTMLDivElement>) {
+    function handleCanvasWheel(event: WheelEvent) {
         event.preventDefault()
         const element = builderCanvasRef.current
         if (!element) return
@@ -1724,10 +1753,17 @@ export default function AdminVenues() {
                                 <p className="text-sm text-slate-500">Chưa có địa điểm nào.</p>
                             ) : (
                                 venues.map((venue) => (
-                                    <button
+                                    <div
                                         key={venue.id}
-                                        type="button"
+                                        role="button"
+                                        tabIndex={0}
                                         onClick={() => {
+                                            if (!confirmLeaveBuilderIfDirty()) return
+                                            void loadVenueBundle(venue.id)
+                                        }}
+                                        onKeyDown={(event) => {
+                                            if (event.key !== 'Enter' && event.key !== ' ') return
+                                            event.preventDefault()
                                             if (!confirmLeaveBuilderIfDirty()) return
                                             void loadVenueBundle(venue.id)
                                         }}
@@ -1751,9 +1787,20 @@ export default function AdminVenues() {
                                                 >
                                                     <Edit className="h-4 w-4 text-sky-300" />
                                                 </button>
+                                                <button
+                                                    type="button"
+                                                    className="rounded p-1.5 hover:bg-red-500/20"
+                                                    title="Xóa địa điểm"
+                                                    onClick={(event) => {
+                                                        event.stopPropagation()
+                                                        void handleDeleteVenue(venue.id)
+                                                    }}
+                                                >
+                                                    <Trash2 className="h-4 w-4 text-red-400" />
+                                                </button>
                                             </div>
                                         </div>
-                                    </button>
+                                    </div>
                                 ))
                             )}
                         </div>
@@ -1914,10 +1961,17 @@ export default function AdminVenues() {
                                         <p className="text-sm text-slate-500">Chưa có bố cục nào.</p>
                                     ) : (
                                         layouts.map((layout) => (
-                                            <button
+                                            <div
                                                 key={layout.id}
-                                                type="button"
+                                                role="button"
+                                                tabIndex={0}
                                                 onClick={() => {
+                                                    if (!confirmLeaveBuilderIfDirty()) return
+                                                    setSelectedLayoutId(layout.id)
+                                                }}
+                                                onKeyDown={(event) => {
+                                                    if (event.key !== 'Enter' && event.key !== ' ') return
+                                                    event.preventDefault()
                                                     if (!confirmLeaveBuilderIfDirty()) return
                                                     setSelectedLayoutId(layout.id)
                                                 }}
@@ -1937,7 +1991,7 @@ export default function AdminVenues() {
                                                         </button>
                                                     </div>
                                                 </div>
-                                            </button>
+                                            </div>
                                         ))
                                     )}
                                 </div>

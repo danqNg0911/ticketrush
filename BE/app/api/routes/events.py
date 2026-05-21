@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -10,6 +10,7 @@ from app.api.deps import get_current_user
 from app.core.cache import EVENT_DETAIL_CACHE_NAMESPACE, EVENT_LIST_CACHE_NAMESPACE, public_api_cache
 from app.core.db import get_db_session
 from app.models.review import EventReview
+from app.models.enums import EventStatus
 from app.models.user import User
 from app.schemas.event import EventCardResponse, EventDetailResponse, ShowDetailResponse
 from app.schemas.review import EventReviewCreateRequest, EventReviewResponse
@@ -55,8 +56,8 @@ async def list_events(
             return cached
 
     events = await list_live_events(session, search=search, category=category, start_from=start_from, end_to=end_to, limit=limit, offset=offset)
-    shows_by_event_id = await list_shows_for_event_ids(session, [event.id for event in events])
-    max_prices_by_event_id = await list_event_max_prices_for_event_ids(session, [event.id for event in events])
+    shows_by_event_id = await list_shows_for_event_ids(session, [event.id for event in events], live_only=True)
+    max_prices_by_event_id = await list_event_max_prices_for_event_ids(session, [event.id for event in events], live_only=True)
     response = [
         await build_event_card_response(
             session,
@@ -78,6 +79,8 @@ async def event_detail(event_key: str, session: AsyncSession = Depends(get_db_se
         return cached
 
     event = await get_event_by_slug_or_id(session, event_key)
+    if event.status != EventStatus.LIVE:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy sự kiện")
     response = await build_event_detail_response(session, event)
     await public_api_cache.set(EVENT_DETAIL_CACHE_NAMESPACE, event_key, response, ttl_seconds=180)
     if event.slug != event_key:
@@ -90,6 +93,9 @@ async def show_detail(show_id: int, session: AsyncSession = Depends(get_db_sessi
     """Lấy chi tiết một buổi diễn bằng ID."""
 
     show = await get_show_by_id(session, show_id)
+    event = await get_event_by_slug_or_id(session, str(show.event_id))
+    if show.status != EventStatus.LIVE or event.status != EventStatus.LIVE:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy buổi diễn")
     return ShowDetailResponse(**(await build_show_detail_response(session, show)))
 
 
@@ -103,6 +109,8 @@ async def list_event_reviews(
     """Trả các đánh giá mới nhất của một sự kiện."""
 
     event = await get_event_by_slug_or_id(session, event_key)
+    if event.status != EventStatus.LIVE:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy sự kiện")
     rows = list(
         await session.scalars(
             select(EventReview)
@@ -137,6 +145,8 @@ async def create_event_review(
     """Tạo một đánh giá của khách hàng cho sự kiện."""
 
     event = await get_event_by_slug_or_id(session, event_key)
+    if event.status != EventStatus.LIVE:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Không tìm thấy sự kiện")
     review = EventReview(
         event_id=event.id,
         user_id=current_user.id,
