@@ -491,6 +491,8 @@ async def update_admin_show(
 
     event, show = await _build_event_or_404_show(session, event_key, show_id)
     updates = payload.model_dump(exclude_unset=True)
+    updates.pop("queue_release_batch", None)
+    updates.pop("max_active_queue_tokens", None)
     is_status_only_update = set(updates) == {"status"}
     previous_status = show.status
     is_unpublishing_show = previous_status == EventStatus.LIVE and updates.get("status") == EventStatus.DRAFT

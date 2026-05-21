@@ -90,7 +90,7 @@ export default function SeatSelection() {
   const authToken = authStorage.getToken()
   const wsUrl = showId && authToken ? `${WS_BASE_URL}/shows/${showId}/seats?token=${encodeURIComponent(authToken)}` : null
   const matrixShowId = matrix?.show_id
-  const matrixQueueEnabled = Boolean(matrix?.queue_enabled)
+  const matrixQueueRequired = Boolean(matrix?.queue_required)
 
   useEffect(() => {
     hasAppliedPreselectedSeatsRef.current = false
@@ -170,7 +170,7 @@ export default function SeatSelection() {
     async function verifyQueueAccess() {
       if (!matrixShowId) return
 
-      if (!matrixQueueEnabled || !isAuthenticated) {
+      if (!matrixQueueRequired || !isAuthenticated) {
         setQueueAccessStatus('admitted')
         setQueueAccessMessage('')
         return
@@ -223,7 +223,7 @@ export default function SeatSelection() {
     return () => {
       disposed = true
     }
-  }, [isAuthenticated, matrixQueueEnabled, matrixShowId, queueToken])
+  }, [isAuthenticated, matrixQueueRequired, matrixShowId, queueToken])
 
   useEffect(() => {
     if (!isPanning || !panStartCursor || !panStartOffset) return
@@ -252,7 +252,10 @@ export default function SeatSelection() {
 
   useEffect(() => {
     if (error && matrix?.event_slug) {
-      handleShowInterrupted(matrix.event_slug)
+      const frameId = window.requestAnimationFrame(() => {
+        handleShowInterrupted(matrix.event_slug)
+      })
+      return () => window.cancelAnimationFrame(frameId)
     }
   }, [error, handleShowInterrupted, matrix?.event_slug])
 
@@ -346,8 +349,8 @@ export default function SeatSelection() {
 
     setStatusMessage('')
 
-    if (matrix.queue_enabled && queueAccessStatus !== 'admitted') {
-      navigate(`/queue?showId=${matrix.show_id}&eventKey=${encodeURIComponent(matrix.event_slug)}`)
+    if (matrix.queue_required && queueAccessStatus !== 'admitted') {
+      navigate(`/queue?showId=${matrix.show_id}&eventKey=${matrix.event_id}`)
       return
     }
 
@@ -382,17 +385,17 @@ export default function SeatSelection() {
         return
       }
 
-      navigate(`/checkout?showId=${matrix.show_id}&eventKey=${matrix.event_slug}`, {
+      navigate(`/checkout?showId=${matrix.show_id}&eventKey=${matrix.event_id}`, {
         state: { lockedSeatIds: result.locked_seat_ids, lockedSeats },
       })
     } catch (checkoutError) {
-      if (matrix.queue_enabled && isRecoverableQueueTokenError(checkoutError)) {
+      if (matrix.queue_required && isRecoverableQueueTokenError(checkoutError)) {
         queueStorage.clearToken(matrix.show_id)
         setSelectedSeatIds([])
         setStatusMessage('Phiên hàng đợi không còn hợp lệ. Hệ thống sẽ đưa bạn quay lại hàng đợi để cấp token mới.')
         await refetch(false)
         await refreshSeatMap()
-        navigate(`/queue?showId=${matrix.show_id}&eventKey=${encodeURIComponent(matrix.event_slug)}`)
+        navigate(`/queue?showId=${matrix.show_id}&eventKey=${matrix.event_id}`)
         return
       }
 
@@ -446,7 +449,7 @@ export default function SeatSelection() {
     })
   }, [])
 
-  const handleSeatUpdates = useCallback((event: MessageEvent) => {
+  const handleSeatUpdates = (event: MessageEvent) => {
     try {
       const message = JSON.parse(event.data) as { type?: string; payload?: { event_slug?: string } }
       if (message.type === 'seat_changes') {
@@ -459,7 +462,7 @@ export default function SeatSelection() {
     } catch {
       // Bỏ qua gói tin WebSocket không đúng định dạng để luồng cập nhật ghế tiếp tục ổn định.
     }
-  }, [handleShowInterrupted, matrix?.event_slug, refetch, refreshSeatMap])
+  }
 
   useWebSocketHeartbeat({ url: wsUrl, onMessage: handleSeatUpdates })
 
@@ -478,16 +481,16 @@ export default function SeatSelection() {
     )
   }
 
-  if (matrix.queue_enabled && isAuthenticated && queueAccessStatus === 'checking') {
+  if (matrix.queue_required && isAuthenticated && queueAccessStatus === 'checking') {
     return <GlobalLoader />
   }
 
-  if (matrix.queue_enabled && isAuthenticated && queueAccessStatus !== 'admitted') {
+  if (matrix.queue_required && isAuthenticated && queueAccessStatus !== 'admitted') {
     return (
       <div className="min-h-screen customer-text-body">
         <main className="mx-auto max-w-3xl space-y-4 px-6 py-24 text-center">
           <p className="text-amber-300">{queueAccessMessage || 'Sự kiện này yêu cầu vào hàng đợi trước khi chọn ghế.'}</p>
-          <Link to={`/queue?showId=${matrix.show_id}&eventKey=${matrix.event_slug}`}>
+          <Link to={`/queue?showId=${matrix.show_id}&eventKey=${matrix.event_id}`}>
             <Button>{queueToken ? 'Quay lại phòng chờ' : 'Tham gia hàng đợi'}</Button>
           </Link>
         </main>
@@ -508,7 +511,7 @@ export default function SeatSelection() {
                   ? 'Bấm vào ghế trống để xem giá và chọn thử. Ghế chỉ được giữ khi bạn đăng nhập, qua hàng đợi hợp lệ và bấm tiếp tục thanh toán.'
                   : 'Hiện chưa có sơ đồ chỗ ngồi cho show này.'}
               </p>
-              {matrix.queue_enabled && !isAuthenticated && (
+              {matrix.queue_required && !isAuthenticated && (
                 <p className="mt-2 max-w-2xl text-xs text-amber-300">
                   Bạn đang xem ở chế độ khách. Hệ thống chỉ yêu cầu đăng nhập và hàng đợi khi bạn bắt đầu giữ ghế để thanh toán.
                 </p>
